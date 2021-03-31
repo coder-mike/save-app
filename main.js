@@ -12,6 +12,10 @@ function createWindow () {
   })
 
   win.loadFile('index.html')
+
+  app.on('will-quit', function() {
+    win.willQuit();
+  });
 }
 
 app.whenReady().then(() => {

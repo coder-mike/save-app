@@ -1,31 +1,109 @@
 {
-  "time": "2021-03-31T07:01:48Z",
-  "lists": [{
-    "name": "Household",
-    "allocated": {
-      "dollars": 500,
-      "unit": "/month"
-    },
-    "overflow": {
-      "value": 0,
-      "rate": 0
-    },
-    "items": [{
-      "name": "Le Creuset Pot",
-      "price": 500,
-      "purchased": false,
-      "saved": {
-        "value": 200,
-        "rate": 50
-      }
-    }, {
-      "name": "Blender",
-      "price": 1000,
-      "purchased": false,
-      "saved": {
-        "value": 0,
-        "rate": 0
-      }
-    }]
-  }]
+  "time": "2021-03-31T21:27:08.390Z",
+  "nextNonLinearity": null,
+  "lists": [
+    {
+      "name": "Household",
+      "allocated": {
+        "dollars": 500000,
+        "unit": "/month"
+      },
+      "overflow": {
+        "value": null,
+        "rate": 16427.104722792606
+      },
+      "items": [
+        {
+          "name": "Item",
+          "price": 1,
+          "purchased": false,
+          "saved": {
+            "value": 1,
+            "rate": 0
+          },
+          "expectedDate": "2021-03-31T21:26:55.401Z"
+        },
+        {
+          "name": "Item",
+          "price": 1,
+          "purchased": false,
+          "saved": {
+            "value": 1,
+            "rate": 0
+          },
+          "expectedDate": "2021-03-31T21:27:00.661Z"
+        },
+        {
+          "name": "Item",
+          "price": 1,
+          "purchased": false,
+          "saved": {
+            "value": 1,
+            "rate": 0
+          },
+          "expectedDate": "2021-03-31T21:21:46.844Z"
+        },
+        {
+          "name": "Item",
+          "price": 1,
+          "purchased": false,
+          "saved": {
+            "value": 1,
+            "rate": 0
+          },
+          "expectedDate": "2021-03-31T21:22:39.440Z"
+        },
+        {
+          "name": "Item",
+          "price": 1,
+          "purchased": false,
+          "saved": {
+            "value": 1,
+            "rate": 0
+          },
+          "expectedDate": "2021-03-31T21:23:32.036Z"
+        },
+        {
+          "name": "Item",
+          "price": 1,
+          "purchased": false,
+          "saved": {
+            "value": 1,
+            "rate": 0
+          },
+          "expectedDate": "2021-03-31T21:24:24.632Z"
+        },
+        {
+          "name": "Item",
+          "price": 1,
+          "purchased": false,
+          "saved": {
+            "value": 1,
+            "rate": 0
+          },
+          "expectedDate": "2021-03-31T21:25:17.228Z"
+        },
+        {
+          "name": "Le Creuset Pot",
+          "price": 500,
+          "purchased": false,
+          "saved": {
+            "value": 500,
+            "rate": 0
+          },
+          "expectedDate": "2021-04-01T00:46:00.166Z"
+        },
+        {
+          "name": "Blender",
+          "price": 1000,
+          "purchased": false,
+          "saved": {
+            "value": 1000,
+            "rate": 0
+          },
+          "expectedDate": "2021-04-01T15:18:00.983Z"
+        }
+      ]
+    }
+  ]
 }

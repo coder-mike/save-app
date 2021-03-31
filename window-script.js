@@ -1,19 +1,20 @@
 const fs = require('fs')
 
-window.state = JSON.parse(fs.readFileSync('state.json'));
-let lastCommitTime = Date.parse(window.state.time);
-
 window.saveState = () => {
+  fs.renameSync('state.json', `backups/state_${Math.round(Date.now())}.json.backup`)
   fs.writeFileSync('state.json', JSON.stringify(window.state, null, 2))
 };
 
 window.addEventListener('load', (event) => {
-  render()
+  window.state = JSON.parse(fs.readFileSync('state.json'));
+  updateState();
 });
 
-function render() {
-  console.log('s2', window.state);
+window.willQuit = () => {
+  updateState();
+}
 
+function render() {
   const content = renderPage(window.state);
   const page = document.getElementById('page');
   page.replaceChildren(content)
@@ -64,6 +65,14 @@ function renderItem(item) {
   priceEl.appendChild(document.createTextNode(item.price));
   itemEl.appendChild(priceEl);
 
+  // ETA
+  const etaEl = document.createElement('div');
+  etaEl.classList.add('currency');
+  etaEl.classList.add('eta');
+  const etaStr = moment(item.expectedDate).format("D MMM");
+  etaEl.appendChild(document.createTextNode(etaStr));
+  itemEl.appendChild(etaEl);
+
   return itemEl;
 }
 
@@ -87,37 +96,91 @@ function renderAmount(amount) {
   return node;
 }
 
-function commitState(state) {
+function updateState() {
+  let state = window.state;
+
+  state ??= {};
+  state.time ??= new Date().toISOString();
+  state.nextNonLinearity ??= null;
+  state.lists ??= [];
+
+  const lastCommitTime = Date.parse(state.time);
   const newTime = Date.now();
+  let nextNonLinearity = null;
 
-  const allocatedRate = getAllocatedRate(state.allocated)
-  const newMoney = state.overflow.value + allocatedRate * (newTime - lastCommitTime)/86_400_000;
+  for (const list of state.lists) {
+    list.name ??= 'List';
+    list.allocated ??= { dollars: 0, unit: '/month' };
+    list.overflow ??= { value: 0, rate: 0 };
+    list.items ??= [];
 
-  // A cascading waterfall where we allocate the new money down the list
-  for (const item of state.items) {
-    if (newMoney && item.saved.value < item.price) {
-      if (item.saved.value + newMoney < item.price) {
-        item.saved.value += newMoney;
-        newMoney = 0;
+    const allocatedRate = getAllocatedRate(list.allocated)
+
+    // The money we have towards the list includes anything from the previous
+    // overflow plus new money accumulated since then
+    let newMoney = list.overflow.value + allocatedRate * (newTime - lastCommitTime) / 86_400_000;
+    let overflowRate = allocatedRate;
+    let dateCursor = lastCommitTime;
+
+    // A cascading waterfall where we allocate the new money down the list
+    for (const item of list.items) {
+      item.name ??= 'Item';
+      item.price ??= 0;
+      item.purchased ??= false;
+      item.saved ??= { value: 0, rate: 0 };
+
+      if (item.saved.value < item.price) {
+        dateCursor += (item.price - item.saved.value) / allocatedRate * 86_400_000;
+        item.expectedDate = new Date(dateCursor).toISOString();
+        if (item.saved.value + newMoney < item.price) {
+          item.saved.value += newMoney;
+          item.saved.rate = overflowRate;
+          const timeUntilSaved = (item.price - item.saved.value) / allocatedRate * 86_400_000;
+          if (!nextNonLinearity || timeUntilSaved < nextNonLinearity)
+            nextNonLinearity = timeUntilSaved;
+          newMoney = 0;
+          overflowRate = 0;
+        } else {
+          newMoney -= (item.price - item.saveState);
+          item.saved.value = item.price;
+          item.saved.rate = 0;
+        }
       } else {
-        newMoney -= (item.price - item.saveState);
-        item.saved.value = item.price;
+        item.saved.rate = 0;
       }
     }
+
+    // If there's still money left over, it goes into the overflow
+    list.overflow.value = newMoney;
+    list.overflow.rate = overflowRate;
   }
 
-  if (newMoney) {
+  state.time = new Date(newTime).toISOString();
+  state.nextNonLinearity = nextNonLinearity
+    ? new Date(newTime + nextNonLinearity)
+    : null;
 
-  }
+  window.state = state;
+  window.nextNonLinearity = nextNonLinearity;
+  window.lastCommitTime = newTime;
+  render();
+  window.saveState();
 
-  const model = {
-    time: new Date(newTime).toISOString(),
+  if (nextNonLinearity) {
+    console.log(`Next non-linearity in ${nextNonLinearity/1000}s`)
+    setTimeout(() => {
+      console.log('Committing at nonlinearity')
+      updateState(window.state)
+    }, nextNonLinearity)
   }
 }
 
 function getAllocatedRate(allocated) {
-  if (unit === '/month')
+  if (allocated.unit === '/month')
     return allocated.dollars * 12 / 365.25;
+  else
+  if (allocated.unit === '/day')
+    return allocated.dollars;
   else
     throw new Error('Unknown unit')
 }
