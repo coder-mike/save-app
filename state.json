@@ -1,0 +1,31 @@
+{
+  "time": "2021-03-31T07:01:48Z",
+  "lists": [{
+    "name": "Household",
+    "allocated": {
+      "dollars": 500,
+      "unit": "/month"
+    },
+    "overflow": {
+      "value": 0,
+      "rate": 0
+    },
+    "items": [{
+      "name": "Le Creuset Pot",
+      "price": 500,
+      "purchased": false,
+      "saved": {
+        "value": 200,
+        "rate": 50
+      }
+    }, {
+      "name": "Blender",
+      "price": 1000,
+      "purchased": false,
+      "saved": {
+        "value": 0,
+        "rate": 0
+      }
+    }]
+  }]
+}
