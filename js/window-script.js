@@ -11,6 +11,8 @@ window.addEventListener('load', () => {
   window.undoIndex = -1; // Points to the current state
   // For the sake of debugging, we revert the state to the last committed state
   window.state.time = serializeDate(Date.now());
+  window.currentListIndex = 0;
+
   pushUndoPoint();
   update();
   render();
@@ -26,7 +28,7 @@ function render() {
 
 function save() {
   console.log('Would save here');
-  //window.saveState();
+  window.saveState();
 }
 
 function pushUndoPoint() {
@@ -74,11 +76,31 @@ function renderPage(state) {
   const pageEl = document.createElement('div');
   pageEl.classList.add('page-body');
 
-  // For the moment I'm assuming just one list
-  const listEl = renderList(state.lists[0]);
-  pageEl.appendChild(listEl);
+  pageEl.appendChild(renderNavigator(state));
+
+  pageEl.appendChild(renderList(state.lists[window.currentListIndex]));
 
   return pageEl;
+}
+
+function renderNavigator(state) {
+  const navEl = document.createElement('ul');
+  navEl.classList.add('list-nav');
+
+  for (const list of state.lists) {
+    const itemEl = navEl.appendChild(document.createElement('li'));
+    itemEl.list = list;
+    itemEl.classList.add('list');
+    itemEl.addEventListener('click', navListItemClick);
+
+    const nameEl = itemEl.appendChild(document.createElement('div'));
+    nameEl.textContent = list.name;
+
+    const allocatedEl = itemEl.appendChild(document.createElement('div'));
+    allocatedEl.textContent = `$${Math.round(getAllocatedRate(list.allocated) * 256.25 / 12)} / month`;
+  }
+
+  return navEl;
 }
 
 function renderList(list) {
@@ -86,27 +108,31 @@ function renderList(list) {
   listEl.list = list;
   listEl.classList.add('list');
 
-  const heading = document.createElement('h1');
+  const heading = listEl.appendChild(document.createElement('h1'));
   heading.classList.add('list-heading')
   makeEditable(heading, () => list.name, v => list.name = v)
-  listEl.appendChild(heading);
 
-  const overflowEl = document.createElement('div');
+  const overflowEl = listEl.appendChild(document.createElement('div'));
+  overflowEl.classList.add('list-overflow');
   overflowEl.appendChild(renderAmount(list.overflow));
-  listEl.appendChild(overflowEl);
 
-  const itemsEl = document.createElement('ol');
+  const allocatedEl = listEl.appendChild(document.createElement('div'));
+  allocatedEl.classList.add('list-allocated');
+  makeEditable(allocatedEl, () => list.allocated.dollars, v => list.allocated.dollars = v);
+
+  const allocationUnitEl = listEl.appendChild(document.createElement('div'));
+  allocationUnitEl.classList.add('list-allocation-unit');
+  allocationUnitEl.textContent = list.allocated.unit;
+
+  const itemsEl = listEl.appendChild(document.createElement('ol'));
   for (const item of list.items) {
     itemsEl.appendChild(renderItem(item));
   }
-  listEl.appendChild(itemsEl);
 
-  const addItemEl = document.createElement('button');
+  const addItemEl = listEl.appendChild(document.createElement('button'));
   addItemEl.classList.add('add-item');
   addItemEl.textContent = 'New';
   addItemEl.addEventListener('click', addItemClick);
-
-  listEl.appendChild(addItemEl);
 
   return listEl;
 }
@@ -122,57 +148,50 @@ function renderItem(item) {
   createItemBackground(item, itemEl);
 
   // Name
-  const nameEl = document.createElement('div');
+  const nameEl = itemEl.appendChild(document.createElement('div'));
   nameEl.classList.add('item-name')
   makeEditable(nameEl, () => item.name, v => item.name = v);
-  itemEl.appendChild(nameEl);
 
   // Saved
-  const savedEl = document.createElement('div');
+  const savedEl = itemEl.appendChild(document.createElement('div'));
   savedEl.classList.add('currency');
   savedEl.classList.add('saved');
   savedEl.appendChild(renderAmount(item.saved));
-  itemEl.appendChild(savedEl);
 
   // Price
-  const priceEl = document.createElement('div');
+  const priceEl = itemEl.appendChild(document.createElement('div'));
   makeEditable(priceEl,
     () => staticCurrencyToStr(item.price),
     v => item.price = Math.max(parseFloat(v) || 0, 0))
   priceEl.classList.add('currency');
   priceEl.classList.add('price');
-  itemEl.appendChild(priceEl);
 
   // ETA
   if (item.expectedDate) {
-    const etaEl = document.createElement('div');
+    const etaEl = itemEl.appendChild(document.createElement('div'));
     etaEl.classList.add('currency');
     etaEl.classList.add('eta');
-    const etaStr = formatDate(item.expectedDate);
+    const etaStr = formatDate(parseDate(item.expectedDate));
     etaEl.appendChild(document.createTextNode(etaStr));
-    itemEl.appendChild(etaEl);
   }
 
   // Move up
-  const moveUp = document.createElement('button');
+  const moveUp = itemEl.appendChild(document.createElement('button'));
   moveUp.classList.add('move-up');
   moveUp.textContent = 'Up';
   moveUp.addEventListener('click', moveUpClick)
-  itemEl.appendChild(moveUp);
 
   // Move down
-  const moveDown = document.createElement('button');
+  const moveDown = itemEl.appendChild(document.createElement('button'));
   moveDown.classList.add('move-down');
   moveDown.textContent = 'Down';
   moveDown.addEventListener('click', moveDownClick)
-  itemEl.appendChild(moveDown);
 
   // Delete
-  const deleteEl = document.createElement('button');
+  const deleteEl = itemEl.appendChild(document.createElement('button'));
   deleteEl.classList.add('delete-item');
   deleteEl.textContent = 'Delete';
   deleteEl.addEventListener('click', deleteItemClick)
-  itemEl.appendChild(deleteEl);
 
   return itemEl;
 }
@@ -183,6 +202,7 @@ function renderAmount(amount) {
 
   const node = document.createTextNode('')
   const update = () => {
+    if (window.isEditing) return;
     const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
     node.nodeValue = value.toFixed(4)
   }
@@ -244,7 +264,7 @@ function update() {
   state.nextNonlinearity ??= null;
   state.lists ??= [];
 
-  const lastCommitTime = Date.parse(state.time);
+  const lastCommitTime = parseDate(state.time);
   let timeOfNextNonlinearity = null;
 
   for (const list of state.lists) {
@@ -276,7 +296,7 @@ function update() {
       const remainingCost = item.price - item.saved.value;
 
       // Project when we will have saved enough for this item
-      timeCursor += remainingCost / rateInDollarsPerMs(allocatedRate);
+      timeCursor += allocatedRate ? remainingCost / rateInDollarsPerMs(allocatedRate) : Infinity;
 
       // Do we have enough money yet to cover it now?
       if (remainingMoneyToAllocate >= remainingCost) {
@@ -326,6 +346,10 @@ function update() {
     if (timeoutPeriod < 1)
       timeoutPeriod = 1;
     window.nextNonLinearityTimer = setTimeout(() => {
+      if (window.isEditing) {
+        console.log('Not updating at nonlinearity because user is busy editing')
+        return;
+      }
       console.log('Updating at nonlinearity', formatDate(Date.now()))
       update(window.state);
       render();
@@ -400,13 +424,23 @@ function rateInDollarsPerMs(rate) {
 }
 
 function formatDate(date) {
+  if (date === Infinity)
+    return 'Never';
   const d = new Date(date);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${('0' + d.getHours()).slice(-2)}:${('0' + d.getMinutes()).slice(-2)}:${('0' + d.getSeconds()).slice(-2)}.${('00' + d.getMilliseconds()).slice(-3)}`;
 }
 
 function serializeDate(date) {
-  return new Date(date).toISOString();
+  return date === Infinity
+    ? 'never'
+    : new Date(date).toISOString();
+}
+
+function parseDate(date) {
+  return date === 'never'
+    ? Infinity
+    : Date.parse(date)
 }
 
 function documentKeyUp(event) {
@@ -429,19 +463,57 @@ function makeEditable(el, get, set) {
   el.textContent = get();
 
   function focus() {
+    beginEdit();
     el.textContent = get();
   }
 
   function blur() {
     set(el.textContent);
-    finishedUserInteraction();
+    endEdit();
   }
+
   function keypress(event) {
     // Enter pressed
     if (event.keyCode === 13) {
       event.target.blur();
       event.preventDefault();
       return false;
+    } else {
+      continueEdit();
     }
   }
+}
+
+function navListItemClick(event) {
+  const list = event.target.list ?? event.target.closest(".list").list;
+
+  const index = window.state.lists.indexOf(list);
+  window.currentListIndex = index;
+
+  render();
+}
+
+function beginEdit(el) {
+  window.isEditing = true;
+  window.elementBeingEdited = el;
+  // The nonnlinearities don't update until we finish editing, so in case the
+  // user leaves the edit in progress, we cancel after 1 minute of inactivity
+  window.editingTimeout = setTimeout(editTimeout, 60000);
+}
+
+function continueEdit() {
+  clearTimeout(window.editingTimeout);
+  window.editingTimeout = setTimeout(editTimeout, 60000);
+}
+
+function editTimeout() {
+  window.elementBeingEdited && window.elementBeingEdited.blur();
+}
+
+function endEdit() {
+
+  window.isEditing = false;
+  window.elementBeingEdited = null;
+  clearTimeout(window.editingTimeout);
+  finishedUserInteraction();
 }
