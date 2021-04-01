@@ -91,9 +91,12 @@ function renderNavigator(state) {
   listListEl.classList.add('list-nav');
 
   for (const list of state.lists) {
+    const listHasReadyItems = list.items.some(item => item.saved.value >= item.price);
+
     const itemEl = listListEl.appendChild(document.createElement('li'));
     itemEl.list = list;
     itemEl.classList.add('list');
+    itemEl.classList.add(listHasReadyItems ? 'has-ready-items' : 'no-ready-items');
     itemEl.addEventListener('click', navListItemClick);
 
     const nameEl = itemEl.appendChild(document.createElement('div'));
@@ -101,6 +104,7 @@ function renderNavigator(state) {
 
     const allocatedEl = itemEl.appendChild(document.createElement('div'));
     allocatedEl.textContent = `$${Math.round(getAllocatedRate(list.allocated) * 365.25 / 12)} / month`;
+
   }
 
   const newListButton = navEl.appendChild(document.createElement('button'));
@@ -280,7 +284,7 @@ function update() {
     list.overflow ??= { value: 0, rate: 0 };
     list.items ??= [];
 
-    const allocatedRate = getAllocatedRate(list.allocated)
+    const allocatedRate = getAllocatedRate(list.allocated);
 
     // We essentially iterate the time cursor forwards from the last commit time to the newTime
     let timeCursor = lastCommitTime;
