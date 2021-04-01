@@ -8,13 +8,10 @@ window.saveState = () => {
 window.addEventListener('load', (event) => {
   window.state = JSON.parse(fs.readFileSync('state.json'));
   // For the sake of debugging, we revert the state to the last committed state
-  window.state.time = new Date().toISOString();
+  window.state.time = serializeDate(Date.now());
   updateState();
+  render();
 });
-
-window.willQuit = () => {
-  updateState();
-}
 
 function render() {
   const content = renderPage(window.state);
@@ -97,12 +94,14 @@ function renderItem(item) {
   itemEl.appendChild(priceEl);
 
   // ETA
-  const etaEl = document.createElement('div');
-  etaEl.classList.add('currency');
-  etaEl.classList.add('eta');
-  const etaStr = moment(item.expectedDate).format("D MMM HH:mm:ss");
-  etaEl.appendChild(document.createTextNode(etaStr));
-  itemEl.appendChild(etaEl);
+  if (item.expectedDate) {
+    const etaEl = document.createElement('div');
+    etaEl.classList.add('currency');
+    etaEl.classList.add('eta');
+    const etaStr = formatDate(item.expectedDate);
+    etaEl.appendChild(document.createTextNode(etaStr));
+    itemEl.appendChild(etaEl);
+  }
 
   // Move up
   const moveUp = document.createElement('button');
@@ -127,7 +126,7 @@ function renderAmount(amount) {
 
   const node = document.createTextNode('')
   const update = () => {
-    const value = amount.value + amount.rate * (Date.now() - lastCommitTime)/86_400_000;
+    const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
     node.nodeValue = value.toFixed(4)
   }
   update();
@@ -156,7 +155,7 @@ function createItemBackground(item, itemEl) {
     itemEl.appendChild(backgroundDiv);
 
     const update = () => {
-      const value = amount.value + amount.rate * (Date.now() - lastCommitTime)/86_400_000;
+      const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
       const percent = (value / item.price) * 100;
       backgroundDiv.style.width = `${percent}%`;
     }
@@ -174,17 +173,27 @@ function createItemBackground(item, itemEl) {
   }
 }
 
+function updateStateAndSave() {
+  updateState();
+  render();
+
+  console.log('Would save here'); // window.saveState(); TODO
+}
+
+// Updates the state to the latest projected values and sets a timeout to repeat
+// automatically the next time that the state needs to change
 function updateState() {
   let state = window.state;
 
+  const newTime = Date.now();
+
   state ??= {};
-  state.time ??= new Date().toISOString();
-  state.nextNonLinearity ??= null;
+  state.time ??= serializeDate(newTime);
+  state.nextNonlinearity ??= null;
   state.lists ??= [];
 
   const lastCommitTime = Date.parse(state.time);
-  const newTime = Date.now();
-  let nextNonLinearity = null;
+  let timeOfNextNonlinearity = null;
 
   for (const list of state.lists) {
     list.name ??= 'List';
@@ -194,11 +203,15 @@ function updateState() {
 
     const allocatedRate = getAllocatedRate(list.allocated)
 
-    // The money we have towards the list includes anything from the previous
-    // overflow plus new money accumulated since then
-    let newMoney = list.overflow.value + allocatedRate * (newTime - lastCommitTime) / 86_400_000;
+    // We essentially iterate the time cursor forwards from the last commit time to the newTime
+    let timeCursor = lastCommitTime;
+
+    // The amount of money we have left over at `timeCursor`
+    let remainingMoneyToAllocate = list.overflow.value + rateInDollarsPerMs(allocatedRate) * (newTime - lastCommitTime);
+
+    // Rate of change of remainingMoneyToAllocate at `timeCursor`, which
+    // eventually gets attributed to the overflow bucket
     let overflowRate = allocatedRate;
-    let dateCursor = lastCommitTime;
 
     // A cascading waterfall where we allocate the new money down the list
     for (const item of list.items) {
@@ -207,55 +220,61 @@ function updateState() {
       item.purchased ??= false;
       item.saved ??= { value: 0, rate: 0 };
 
-      if (item.saved.value < item.price) {
-        dateCursor += (item.price - item.saved.value) / allocatedRate * 86_400_000;
-        item.expectedDate = new Date(dateCursor).toISOString();
-        if (item.saved.value + newMoney < item.price) {
-          item.saved.value += newMoney;
-          item.saved.rate = overflowRate;
-          const timeUntilSaved = dateCursor - lastCommitTime;
-          if (!nextNonLinearity || timeUntilSaved < nextNonLinearity)
-            nextNonLinearity = timeUntilSaved;
-          newMoney = 0;
-          overflowRate = 0;
-        } else {
-          newMoney -= (item.price - item.saved.value);
-          item.saved.value = item.price;
-          item.saved.rate = 0;
-        }
-      } else {
+      // Remaining item cost at the time of last commit
+      const remainingCost = item.price - item.saved.value;
+
+      // Project when we will have saved enough for this item
+      timeCursor += remainingCost / rateInDollarsPerMs(allocatedRate);
+
+      // Do we have enough money yet to cover it now?
+      if (remainingMoneyToAllocate >= remainingCost) {
+        remainingMoneyToAllocate -= remainingCost; // For the rare case of a price reduction, we can add back the money
+        item.saved.value = item.price;
         item.saved.rate = 0;
-        // For the rare case where the price drops
-        newMoney += (item.saved.value - item.price);
+        item.expectedDate = null;
+      } else {
+        // Else we don't have enough money yet, so all the remaining money goes
+        // to the item. A special case is that we have no remaining money.
+        item.saved.value += remainingMoneyToAllocate;
+        item.saved.rate = overflowRate;
+        remainingMoneyToAllocate = 0;
+        overflowRate = 0;
+
+        // The time cursor is the projected date when the remaining cost of the
+        // item will be paid off. The next nonlinearity is the earliest future
+        // time at which an item will be paid off.
+        if (timeCursor > newTime && (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity))
+          timeOfNextNonlinearity = timeCursor;
+
+        item.expectedDate = serializeDate(timeCursor);
       }
     }
 
     // If there's still money left over, it goes into the overflow
-    list.overflow.value = newMoney;
+    list.overflow.value = remainingMoneyToAllocate;
     list.overflow.rate = overflowRate;
   }
 
-  state.time = new Date(newTime).toISOString();
-  state.nextNonLinearity = nextNonLinearity
-    ? new Date(newTime + nextNonLinearity).toISOString()
+  state.time = serializeDate(newTime);
+  state.nextNonlinearity = timeOfNextNonlinearity
+    ? serializeDate(timeOfNextNonlinearity)
     : null;
 
   window.state = state;
-  window.nextNonLinearity = nextNonLinearity;
+  window.nextNonlinearity = timeOfNextNonlinearity;
   window.lastCommitTime = newTime;
-  render();
-  //window.saveState(); TODO
 
-  if (nextNonLinearity) {
-    let timeoutPeriod = Date.parse(state.nextNonLinearity) - Date.now();
+  if (timeOfNextNonlinearity) {
+    let timeoutPeriod = timeOfNextNonlinearity - Date.now();
     console.log(`Next nonlinearity in ${timeoutPeriod/1000}s`)
 
     window.nextNonLinearityTimer && clearTimeout(window.nextNonLinearityTimer);
     if (timeoutPeriod > 2147483647)
       timeoutPeriod = 2147483647
     window.nextNonLinearityTimer = setTimeout(() => {
-      console.log('Committing at nonlinearity')
-      updateState(window.state)
+      console.log('Updating at nonlinearity')
+      updateState(window.state);
+      render();
     }, timeoutPeriod)
   }
 }
@@ -280,7 +299,7 @@ function moveUpClick(event) {
   items.splice(index, 1);
   items.splice(index - 1, 0, item);
 
-  updateState();
+  updateStateAndSave();
 }
 
 function moveDownClick(event) {
@@ -293,7 +312,7 @@ function moveDownClick(event) {
   items.splice(index, 1);
   items.splice(index + 1, 0, item);
 
-  updateState();
+  updateStateAndSave();
 }
 
 function addItemClick(event) {
@@ -302,6 +321,21 @@ function addItemClick(event) {
   const list = event.target.closest(".list").list;
   list.items.push({});
 
-  updateState();
+  updateStateAndSave();
+}
 
+// For debuggability, the rates are stored in dollars per day, but we need them
+// in dollars per millisecond for most calculations
+function rateInDollarsPerMs(rate) {
+  return rate / 86_400_000;
+}
+
+function formatDate(date) {
+  const d = new Date(date);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${("0" + d.getHours()).slice(-2)}:${("0" + d.getMinutes()).slice(-2)}:${("0" + d.getSeconds()).slice(-2)}`;
+}
+
+function serializeDate(date) {
+  return new Date(date).toISOString();
 }
