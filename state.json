@@ -1,6 +1,6 @@
 {
-  "time": "2021-04-01T01:39:41.262Z",
-  "nextNonlinearity": "2021-04-01T01:40:07.549Z",
+  "time": "2021-04-01T22:16:49.332Z",
+  "nextNonlinearity": "2021-04-01T22:59:57.925Z",
   "lists": [
     {
       "name": "Household",
@@ -18,20 +18,20 @@
           "price": 1,
           "purchased": true,
           "saved": {
-            "value": 1,
+            "value": 0.5,
             "rate": 0
           },
-          "expectedDate": "2021-04-01T01:38:48.292Z"
+          "expectedDate": null
         },
         {
           "name": "Item2",
           "price": 1,
           "purchased": false,
           "saved": {
-            "value": 1,
+            "value": 0.5,
             "rate": 0
           },
-          "expectedDate": "2021-04-01T01:39:14.590Z"
+          "expectedDate": null
         },
         {
           "name": "Item3",
@@ -39,49 +39,49 @@
           "purchased": false,
           "saved": {
             "value": 0.5,
-            "rate": 1642.7104722792608
+            "rate": 0
           },
-          "expectedDate": "2021-04-01T01:40:07.549Z"
+          "expectedDate": null
         },
         {
           "name": "Item4",
           "price": 1,
           "purchased": false,
           "saved": {
-            "value": 0.5,
+            "value": 1,
             "rate": 0
           },
-          "expectedDate": "2021-04-01T01:40:33.847Z"
+          "expectedDate": null
         },
         {
           "name": "Item5",
           "price": 1,
           "purchased": false,
           "saved": {
-            "value": 0.5,
+            "value": 1,
             "rate": 0
           },
-          "expectedDate": "2021-04-01T01:41:00.145Z"
+          "expectedDate": null
         },
         {
           "name": "Le Creuset Pot",
           "price": 1,
           "purchased": false,
           "saved": {
-            "value": 0,
+            "value": 1,
             "rate": 0
           },
-          "expectedDate": "2021-04-01T06:35:21.330Z"
+          "expectedDate": null
         },
         {
           "name": "Blender",
-          "price": 1,
+          "price": 100,
           "purchased": false,
           "saved": {
-            "value": 0,
-            "rate": 0
+            "value": 1.5670012928739825,
+            "rate": 3285.4209445585216
           },
-          "expectedDate": "2021-04-01T21:11:57.330Z"
+          "expectedDate": "2021-04-01T22:59:57.925Z"
         }
       ]
     }

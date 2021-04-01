@@ -25,7 +25,8 @@ function render() {
 }
 
 function save() {
-  console.log('Would save here'); // window.saveState(); TODO
+  console.log('Would save here');
+  //window.saveState();
 }
 
 function pushUndoPoint() {
@@ -73,14 +74,6 @@ function renderPage(state) {
   const pageEl = document.createElement('div');
   pageEl.classList.add('page-body');
 
-  // const reloadButton = document.createElement('button');
-  // reloadButton.textContent = 'Reload';
-  // reloadButton.addEventListener('click', () => {
-  //   updateState();
-  //   window.reload();
-  // })
-  // pageEl.appendChild(reloadButton);
-
   // For the moment I'm assuming just one list
   const listEl = renderList(state.lists[0]);
   pageEl.appendChild(listEl);
@@ -93,9 +86,10 @@ function renderList(list) {
   listEl.list = list;
   listEl.classList.add('list');
 
-  const header = document.createElement('h1');
-  header.appendChild(document.createTextNode(list.name));
-  listEl.appendChild(header);
+  const heading = document.createElement('h1');
+  heading.classList.add('list-heading')
+  makeEditable(heading, () => list.name, v => list.name = v)
+  listEl.appendChild(heading);
 
   const overflowEl = document.createElement('div');
   overflowEl.appendChild(renderAmount(list.overflow));
@@ -130,7 +124,7 @@ function renderItem(item) {
   // Name
   const nameEl = document.createElement('div');
   nameEl.classList.add('item-name')
-  nameEl.appendChild(document.createTextNode(item.name));
+  makeEditable(nameEl, () => item.name, v => item.name = v);
   itemEl.appendChild(nameEl);
 
   // Saved
@@ -142,9 +136,11 @@ function renderItem(item) {
 
   // Price
   const priceEl = document.createElement('div');
+  makeEditable(priceEl,
+    () => staticCurrencyToStr(item.price),
+    v => item.price = Math.max(parseFloat(v) || 0, 0))
   priceEl.classList.add('currency');
   priceEl.classList.add('price');
-  priceEl.appendChild(document.createTextNode(item.price));
   itemEl.appendChild(priceEl);
 
   // ETA
@@ -183,7 +179,7 @@ function renderItem(item) {
 
 function renderAmount(amount) {
   if (!amount.rate)
-    return document.createTextNode(amount.value.toFixed(2));
+    return document.createTextNode(staticCurrencyToStr(amount.value));
 
   const node = document.createTextNode('')
   const update = () => {
@@ -223,6 +219,10 @@ function createItemBackground(item, itemEl) {
       })
     }
   }
+}
+
+function staticCurrencyToStr(value) {
+  return value.toFixed(2);
 }
 
 function finishedUserInteraction() {
@@ -418,5 +418,30 @@ function documentKeyUp(event) {
       undo();
     event.preventDefault();
     return false;
+  }
+}
+
+function makeEditable(el, get, set) {
+  el.setAttribute('contentEditable', true);
+  el.addEventListener('focus', focus)
+  el.addEventListener('blur', blur)
+  el.addEventListener('keypress', keypress)
+  el.textContent = get();
+
+  function focus() {
+    el.textContent = get();
+  }
+
+  function blur() {
+    set(el.textContent);
+    finishedUserInteraction();
+  }
+  function keypress(event) {
+    // Enter pressed
+    if (event.keyCode === 13) {
+      event.target.blur();
+      event.preventDefault();
+      return false;
+    }
   }
 }
