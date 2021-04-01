@@ -1,6 +1,6 @@
 {
-  "time": "2021-04-01T23:18:09.230Z",
-  "nextNonlinearity": "2021-04-01T23:50:00.945Z",
+  "time": "2021-04-01T23:28:17.116Z",
+  "nextNonlinearity": "2021-04-01T23:59:28.787Z",
   "lists": [
     {
       "name": "List",
@@ -28,10 +28,10 @@
           "price": 10,
           "purchased": false,
           "saved": {
-            "value": 2.730565442238953,
+            "value": 2.88283557684995,
             "rate": 328.5420944558522
           },
-          "expectedDate": "2021-04-01T23:50:00.945Z"
+          "expectedDate": "2021-04-01T23:59:28.787Z"
         }
       ]
     },
@@ -111,10 +111,33 @@
           "price": 100,
           "purchased": false,
           "saved": {
-            "value": 11.708494942581183,
+            "value": 13.231196288691157,
             "rate": 3285.4209445585216
           },
-          "expectedDate": "2021-04-01T23:56:51.120Z"
+          "expectedDate": "2021-04-02T00:06:18.962Z"
+        }
+      ]
+    },
+    {
+      "name": "List",
+      "allocated": {
+        "dollars": "000",
+        "unit": "/month"
+      },
+      "overflow": {
+        "value": 0,
+        "rate": 0
+      },
+      "items": [
+        {
+          "name": "Item",
+          "price": 10,
+          "purchased": false,
+          "saved": {
+            "value": 0.01183093771389459,
+            "rate": 0
+          },
+          "expectedDate": "never"
         }
       ]
     }

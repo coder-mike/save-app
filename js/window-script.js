@@ -84,11 +84,14 @@ function renderPage(state) {
 }
 
 function renderNavigator(state) {
-  const navEl = document.createElement('ul');
-  navEl.classList.add('list-nav');
+  const navEl = document.createElement('div');
+  navEl.classList.add('nav-panel');
+
+  const listListEl = navEl.appendChild(document.createElement('ul'));
+  listListEl.classList.add('list-nav');
 
   for (const list of state.lists) {
-    const itemEl = navEl.appendChild(document.createElement('li'));
+    const itemEl = listListEl.appendChild(document.createElement('li'));
     itemEl.list = list;
     itemEl.classList.add('list');
     itemEl.addEventListener('click', navListItemClick);
@@ -97,8 +100,12 @@ function renderNavigator(state) {
     nameEl.textContent = list.name;
 
     const allocatedEl = itemEl.appendChild(document.createElement('div'));
-    allocatedEl.textContent = `$${Math.round(getAllocatedRate(list.allocated) * 256.25 / 12)} / month`;
+    allocatedEl.textContent = `$${Math.round(getAllocatedRate(list.allocated) * 365.25 / 12)} / month`;
   }
+
+  const newListButton = navEl.appendChild(document.createElement('button'));
+  newListButton.textContent = 'New list';
+  newListButton.addEventListener('click', newListClick);
 
   return navEl;
 }
@@ -511,9 +518,15 @@ function editTimeout() {
 }
 
 function endEdit() {
-
   window.isEditing = false;
   window.elementBeingEdited = null;
   clearTimeout(window.editingTimeout);
   finishedUserInteraction();
+}
+
+function newListClick() {
+  window.state.lists.push({});
+  window.currentListIndex = window.state.lists.length - 1;
+  update();
+  render();
 }
