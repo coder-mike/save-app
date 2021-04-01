@@ -7,6 +7,8 @@ window.saveState = () => {
 
 window.addEventListener('load', (event) => {
   window.state = JSON.parse(fs.readFileSync('state.json'));
+  // For the sake of debugging, we revert the state to the last committed state
+  window.state.time = new Date().toISOString();
   updateState();
 });
 
@@ -21,12 +23,27 @@ function render() {
 }
 
 function renderPage(state) {
+  const pageEl = document.createElement('div');
+  pageEl.classList.add('page-body');
+
+  // const reloadButton = document.createElement('button');
+  // reloadButton.textContent = 'Reload';
+  // reloadButton.addEventListener('click', () => {
+  //   updateState();
+  //   window.reload();
+  // })
+  // pageEl.appendChild(reloadButton);
+
   // For the moment I'm assuming just one list
-  return renderList(state.lists[0]);
+  const listEl = renderList(state.lists[0]);
+  pageEl.appendChild(listEl);
+
+  return pageEl;
 }
 
 function renderList(list) {
   const listEl = document.createElement('div');
+  listEl.list = list;
   listEl.classList.add('list');
 
   const header = document.createElement('h1');
@@ -39,11 +56,25 @@ function renderList(list) {
   }
   listEl.appendChild(itemsEl);
 
+  const addItemEl = document.createElement('button');
+  addItemEl.classList.add('add-item');
+  addItemEl.textContent = 'New';
+  addItemEl.addEventListener('click', addItemClick);
+
+  listEl.appendChild(addItemEl);
+
   return listEl;
 }
 
 function renderItem(item) {
   const itemEl = document.createElement('li');
+  itemEl.item = item;
+  itemEl.style.position = 'relative';
+  itemEl.classList.add('item');
+  itemEl.classList.add(item.purchased ? 'purchased' : 'not-purchased')
+  itemEl.classList.add(item.saved.value >= item.price ? 'afforded' : 'not-afforded')
+
+  createItemBackground(item, itemEl);
 
   // Name
   const nameEl = document.createElement('div');
@@ -69,16 +100,30 @@ function renderItem(item) {
   const etaEl = document.createElement('div');
   etaEl.classList.add('currency');
   etaEl.classList.add('eta');
-  const etaStr = moment(item.expectedDate).format("D MMM");
+  const etaStr = moment(item.expectedDate).format("D MMM HH:mm:ss");
   etaEl.appendChild(document.createTextNode(etaStr));
   itemEl.appendChild(etaEl);
+
+  // Move up
+  const moveUp = document.createElement('button');
+  moveUp.classList.add('move-up');
+  moveUp.textContent = 'Up';
+  moveUp.addEventListener('click', moveUpClick)
+  itemEl.appendChild(moveUp);
+
+  // Move down
+  const moveDown = document.createElement('button');
+  moveDown.classList.add('move-down');
+  moveDown.textContent = 'Down';
+  moveDown.addEventListener('click', moveDownClick)
+  itemEl.appendChild(moveDown);
 
   return itemEl;
 }
 
 function renderAmount(amount) {
   if (!amount.rate)
-    return document.createTextNode(Math.floor(amount.value));
+    return document.createTextNode(amount.value.toFixed(2));
 
   const node = document.createTextNode('')
   const update = () => {
@@ -94,6 +139,39 @@ function renderAmount(amount) {
   })
 
   return node;
+}
+
+function createItemBackground(item, itemEl) {
+  const amount = item.saved;
+  // This function creates the moving background div to indicate progress, which
+  // only applies
+  if (amount.rate || (amount.value > 0 && amount.value < item.price)) {
+    const backgroundDiv = document.createElement('div');
+    backgroundDiv.classList.add('progress-background');
+    backgroundDiv.style.position = 'relative';
+    backgroundDiv.style.top = '0';
+    backgroundDiv.style.left = '0';
+    backgroundDiv.style.height = '5px';
+    backgroundDiv.style.backgroundColor = 'pink';
+    itemEl.appendChild(backgroundDiv);
+
+    const update = () => {
+      const value = amount.value + amount.rate * (Date.now() - lastCommitTime)/86_400_000;
+      const percent = (value / item.price) * 100;
+      backgroundDiv.style.width = `${percent}%`;
+    }
+
+    update();
+
+    if (amount.rate) {
+      // The amount of time it takes to move 1000th of the price
+      const interval = 86400000 / (amount.rate * 1000);
+      const timer = setInterval(update, interval)
+      backgroundDiv.addEventListener('DOMNodeRemoved', () => {
+        clearInterval(timer);
+      })
+    }
+  }
 }
 
 function updateState() {
@@ -135,18 +213,20 @@ function updateState() {
         if (item.saved.value + newMoney < item.price) {
           item.saved.value += newMoney;
           item.saved.rate = overflowRate;
-          const timeUntilSaved = (item.price - item.saved.value) / allocatedRate * 86_400_000;
+          const timeUntilSaved = dateCursor - lastCommitTime;
           if (!nextNonLinearity || timeUntilSaved < nextNonLinearity)
             nextNonLinearity = timeUntilSaved;
           newMoney = 0;
           overflowRate = 0;
         } else {
-          newMoney -= (item.price - item.saveState);
+          newMoney -= (item.price - item.saved.value);
           item.saved.value = item.price;
           item.saved.rate = 0;
         }
       } else {
         item.saved.rate = 0;
+        // For the rare case where the price drops
+        newMoney += (item.saved.value - item.price);
       }
     }
 
@@ -157,21 +237,26 @@ function updateState() {
 
   state.time = new Date(newTime).toISOString();
   state.nextNonLinearity = nextNonLinearity
-    ? new Date(newTime + nextNonLinearity)
+    ? new Date(newTime + nextNonLinearity).toISOString()
     : null;
 
   window.state = state;
   window.nextNonLinearity = nextNonLinearity;
   window.lastCommitTime = newTime;
   render();
-  window.saveState();
+  //window.saveState(); TODO
 
   if (nextNonLinearity) {
-    console.log(`Next non-linearity in ${nextNonLinearity/1000}s`)
-    setTimeout(() => {
+    let timeoutPeriod = Date.parse(state.nextNonLinearity) - Date.now();
+    console.log(`Next nonlinearity in ${timeoutPeriod/1000}s`)
+
+    window.nextNonLinearityTimer && clearTimeout(window.nextNonLinearityTimer);
+    if (timeoutPeriod > 2147483647)
+      timeoutPeriod = 2147483647
+    window.nextNonLinearityTimer = setTimeout(() => {
       console.log('Committing at nonlinearity')
       updateState(window.state)
-    }, nextNonLinearity)
+    }, timeoutPeriod)
   }
 }
 
@@ -183,4 +268,40 @@ function getAllocatedRate(allocated) {
     return allocated.dollars;
   else
     throw new Error('Unknown unit')
+}
+
+function moveUpClick(event) {
+  updateState();
+
+  const item = event.target.closest(".item").item;
+  const list = event.target.closest(".list").list;
+  const items = list.items;
+  const index = items.indexOf(item);
+  items.splice(index, 1);
+  items.splice(index - 1, 0, item);
+
+  updateState();
+}
+
+function moveDownClick(event) {
+  updateState();
+
+  const item = event.target.closest(".item").item;
+  const list = event.target.closest(".list").list;
+  const items = list.items;
+  const index = items.indexOf(item);
+  items.splice(index, 1);
+  items.splice(index + 1, 0, item);
+
+  updateState();
+}
+
+function addItemClick(event) {
+  updateState();
+
+  const list = event.target.closest(".list").list;
+  list.items.push({});
+
+  updateState();
+
 }
