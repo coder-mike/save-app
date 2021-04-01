@@ -284,7 +284,7 @@ function update() {
         // The time cursor is the projected date when the remaining cost of the
         // item will be paid off. The next nonlinearity is the earliest future
         // time at which an item will be paid off.
-        if (timeCursor > newTime && (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity))
+        if (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity)
           timeOfNextNonlinearity = timeCursor;
 
         item.expectedDate = serializeDate(timeCursor);
@@ -315,7 +315,7 @@ function update() {
     if (timeoutPeriod < 1)
       timeoutPeriod = 1;
     window.nextNonLinearityTimer = setTimeout(() => {
-      console.log('Updating at nonlinearity')
+      console.log('Updating at nonlinearity', formatDate(Date.now()))
       update(window.state);
       render();
     }, timeoutPeriod)
@@ -376,7 +376,7 @@ function rateInDollarsPerMs(rate) {
 function formatDate(date) {
   const d = new Date(date);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${("0" + d.getHours()).slice(-2)}:${("0" + d.getMinutes()).slice(-2)}:${("0" + d.getSeconds()).slice(-2)}`;
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${('0' + d.getHours()).slice(-2)}:${('0' + d.getMinutes()).slice(-2)}:${('0' + d.getSeconds()).slice(-2)}.${('00' + d.getMilliseconds()).slice(-3)}`;
 }
 
 function serializeDate(date) {
