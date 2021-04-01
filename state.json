@@ -65,17 +65,17 @@
         },
         {
           "name": "Le Creuset Pot",
-          "price": 500,
+          "price": 1,
           "purchased": false,
           "saved": {
-            "value": 165.2104912921135,
+            "value": 0,
             "rate": 0
           },
           "expectedDate": "2021-04-01T06:35:21.330Z"
         },
         {
           "name": "Blender",
-          "price": 1000,
+          "price": 1,
           "purchased": false,
           "saved": {
             "value": 0,

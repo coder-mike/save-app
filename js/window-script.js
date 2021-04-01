@@ -97,6 +97,10 @@ function renderList(list) {
   header.appendChild(document.createTextNode(list.name));
   listEl.appendChild(header);
 
+  const overflowEl = document.createElement('div');
+  overflowEl.appendChild(renderAmount(list.overflow));
+  listEl.appendChild(overflowEl);
+
   const itemsEl = document.createElement('ol');
   for (const item of list.items) {
     itemsEl.appendChild(renderItem(item));
@@ -166,6 +170,13 @@ function renderItem(item) {
   moveDown.textContent = 'Down';
   moveDown.addEventListener('click', moveDownClick)
   itemEl.appendChild(moveDown);
+
+  // Delete
+  const deleteEl = document.createElement('button');
+  deleteEl.classList.add('delete-item');
+  deleteEl.textContent = 'Delete';
+  deleteEl.addEventListener('click', deleteItemClick)
+  itemEl.appendChild(deleteEl);
 
   return itemEl;
 }
@@ -354,6 +365,21 @@ function moveDownClick(event) {
   const index = items.indexOf(item);
   items.splice(index, 1);
   items.splice(index + 1, 0, item);
+
+  finishedUserInteraction();
+}
+
+function deleteItemClick(event) {
+  update();
+
+  const item = event.target.closest(".item").item;
+  const list = event.target.closest(".list").list;
+  const items = list.items;
+  const index = items.indexOf(item);
+  items.splice(index, 1);
+
+  // Put the value back into the kitty
+  list.overflow.value += item.saved.value;
 
   finishedUserInteraction();
 }
