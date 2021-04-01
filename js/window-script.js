@@ -5,18 +5,68 @@ window.saveState = () => {
   fs.writeFileSync('state.json', JSON.stringify(window.state, null, 2))
 };
 
-window.addEventListener('load', (event) => {
+window.addEventListener('load', () => {
   window.state = JSON.parse(fs.readFileSync('state.json'));
+  window.undoHistory = [];
+  window.undoIndex = -1; // Points to the current state
   // For the sake of debugging, we revert the state to the last committed state
   window.state.time = serializeDate(Date.now());
-  updateState();
+  pushUndoPoint();
+  update();
   render();
 });
+
+document.addEventListener('keydown', documentKeyUp);
 
 function render() {
   const content = renderPage(window.state);
   const page = document.getElementById('page');
   page.replaceChildren(content)
+}
+
+function save() {
+  console.log('Would save here'); // window.saveState(); TODO
+}
+
+function pushUndoPoint() {
+  window.undoIndex++;
+
+  // Any future history (for redo) becomes invalid at this point
+  if (window.undoHistory.length > window.undoIndex)
+    window.undoHistory = window.undoHistory.slice(0, window.undoIndex);
+
+  // The undo history needs to contain a *copy* of all the information in the
+  // current state. It's easiest to just serialize it and then we can
+  // deserialize IFF we need to undo
+  window.undoHistory[window.undoIndex] = JSON.stringify(window.state);
+}
+
+function undo() {
+  // Can't undo past the beginning
+  if (window.undoIndex <= 0) return;
+
+  window.undoIndex--;
+
+  // Restore to the previous state
+  window.state = JSON.parse(window.undoHistory[window.undoIndex]);
+
+  update();
+  render();
+  save();
+}
+
+function redo() {
+  // Can't redo past the end
+  if (window.undoIndex >= window.undoHistory.length - 1) return;
+
+  window.undoIndex++;
+
+  // Restore to the state
+  window.state = JSON.parse(window.undoHistory[window.undoIndex]);
+
+  update();
+  render();
+  save();
 }
 
 function renderPage(state) {
@@ -145,44 +195,35 @@ function createItemBackground(item, itemEl) {
   // This function creates the moving background div to indicate progress, which
   // only applies
   if (amount.rate || (amount.value > 0 && amount.value < item.price)) {
-    const backgroundDiv = document.createElement('div');
-    backgroundDiv.classList.add('progress-background');
-    backgroundDiv.style.position = 'relative';
-    backgroundDiv.style.top = '0';
-    backgroundDiv.style.left = '0';
-    backgroundDiv.style.height = '5px';
-    backgroundDiv.style.backgroundColor = 'pink';
-    itemEl.appendChild(backgroundDiv);
-
     const update = () => {
       const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
       const percent = (value / item.price) * 100;
-      backgroundDiv.style.width = `${percent}%`;
+      itemEl.style.background = `linear-gradient(90deg, #ddeeff ${percent}%, white ${percent}%)`
     }
 
     update();
 
     if (amount.rate) {
-      // The amount of time it takes to move 1000th of the price
-      const interval = 86400000 / (amount.rate * 1000);
-      const timer = setInterval(update, interval)
-      backgroundDiv.addEventListener('DOMNodeRemoved', () => {
+      // Once a second shouldn't be to taxing, and it's probably fast enough for
+      // most real-world savings
+      const timer = setInterval(update, 1000)
+      itemEl.addEventListener('DOMNodeRemoved', () => {
         clearInterval(timer);
       })
     }
   }
 }
 
-function updateStateAndSave() {
-  updateState();
+function finishedUserInteraction() {
+  update();
   render();
-
-  console.log('Would save here'); // window.saveState(); TODO
+  pushUndoPoint();
+  save();
 }
 
 // Updates the state to the latest projected values and sets a timeout to repeat
 // automatically the next time that the state needs to change
-function updateState() {
+function update() {
   let state = window.state;
 
   const newTime = Date.now();
@@ -271,9 +312,11 @@ function updateState() {
     window.nextNonLinearityTimer && clearTimeout(window.nextNonLinearityTimer);
     if (timeoutPeriod > 2147483647)
       timeoutPeriod = 2147483647
+    if (timeoutPeriod < 1)
+      timeoutPeriod = 1;
     window.nextNonLinearityTimer = setTimeout(() => {
       console.log('Updating at nonlinearity')
-      updateState(window.state);
+      update(window.state);
       render();
     }, timeoutPeriod)
   }
@@ -290,7 +333,7 @@ function getAllocatedRate(allocated) {
 }
 
 function moveUpClick(event) {
-  updateState();
+  update();
 
   const item = event.target.closest(".item").item;
   const list = event.target.closest(".list").list;
@@ -299,11 +342,11 @@ function moveUpClick(event) {
   items.splice(index, 1);
   items.splice(index - 1, 0, item);
 
-  updateStateAndSave();
+  finishedUserInteraction();
 }
 
 function moveDownClick(event) {
-  updateState();
+  update();
 
   const item = event.target.closest(".item").item;
   const list = event.target.closest(".list").list;
@@ -312,16 +355,16 @@ function moveDownClick(event) {
   items.splice(index, 1);
   items.splice(index + 1, 0, item);
 
-  updateStateAndSave();
+  finishedUserInteraction();
 }
 
 function addItemClick(event) {
-  updateState();
+  update();
 
   const list = event.target.closest(".list").list;
   list.items.push({});
 
-  updateStateAndSave();
+  finishedUserInteraction();
 }
 
 // For debuggability, the rates are stored in dollars per day, but we need them
@@ -338,4 +381,16 @@ function formatDate(date) {
 
 function serializeDate(date) {
   return new Date(date).toISOString();
+}
+
+function documentKeyUp(event) {
+  // Ctrl+Z
+  if (event.keyCode === 90 && event.ctrlKey) {
+    if (event.shiftKey)
+      redo();
+    else
+      undo();
+    event.preventDefault();
+    return false;
+  }
 }
