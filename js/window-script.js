@@ -214,8 +214,11 @@ function renderItem(item) {
     : 'Ready';
   etaEl.appendChild(document.createTextNode(etaStr));
 
+  const buttonControlsEl = itemInnerEl.appendChild(document.createElement('div'));
+  buttonControlsEl.classList.add('button-controls');
+
   // Delete
-  const deleteEl = itemInnerEl.appendChild(document.createElement('button'));
+  const deleteEl = buttonControlsEl.appendChild(document.createElement('button'));
   deleteEl.classList.add('delete-item');
   deleteEl.classList.add('control-button');
   deleteEl.textContent = 'Delete';
@@ -223,7 +226,7 @@ function renderItem(item) {
   deleteEl.title = 'Remove item from list and redistribute the money back into the list';
 
   // Empty
-  const emptyEl = itemInnerEl.appendChild(document.createElement('button'));
+  const emptyEl = buttonControlsEl.appendChild(document.createElement('button'));
   emptyEl.classList.add('empty-item');
   emptyEl.classList.add('control-button');
   emptyEl.textContent = 'Empty';
@@ -231,7 +234,7 @@ function renderItem(item) {
   emptyEl.title = 'Remove all the money from the item without redistributing it';
 
   // Redistribute
-  const redistributeEl = itemInnerEl.appendChild(document.createElement('button'));
+  const redistributeEl = buttonControlsEl.appendChild(document.createElement('button'));
   redistributeEl.classList.add('redistribute-item');
   redistributeEl.classList.add('control-button');
   redistributeEl.textContent = 'Redistribute';
@@ -240,7 +243,7 @@ function renderItem(item) {
 
   // Purchase
   if (item.saved.value) {
-    const purchaseEl = itemInnerEl.appendChild(document.createElement('button'));
+    const purchaseEl = buttonControlsEl.appendChild(document.createElement('button'));
     purchaseEl.classList.add('purchase-item');
     purchaseEl.classList.add('control-button');
     purchaseEl.textContent = 'Purchased';

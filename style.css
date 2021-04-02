@@ -257,20 +257,40 @@ h1.list-heading {
   opacity: 0.5;
 }
 
+/* ------------------------ Item.Buttons --------------------- */
+
+.item .button-controls {
+  display: none;
+  position: absolute;
+  left: 40px;
+  top: 64px;
+  height: 40px;
+  z-index: 1;
+}
+
+.item:hover .button-controls {
+  display: block;
+}
+
+.item .control-button {
+  width: 100px;
+  height: 20px;
+  margin-right: 10px;
+  border-radius: 10px;
+  border: 1px solid #aaa;
+  background-color: white;
+  cursor: pointer;
+}
+
+.item .control-button:hover {
+  background-color: #eee;
+  border-color: #888;
+}
+
 /* ------------------------ Item.Other --------------------- */
 
 .item-name {
   font-size: 1.0em;
-  display: inline-block;
-}
-
-.item .control-button {
-  display: none;
-  position: relative;
-  top: 30px;
-}
-
-.item:hover .control-button {
   display: inline-block;
 }
 
