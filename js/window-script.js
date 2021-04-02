@@ -11,7 +11,6 @@ window.addEventListener('load', () => {
   window.undoIndex = -1; // Points to the current state
   // For the sake of debugging, we revert the state to the last committed state
   window.state.time = serializeDate(Date.now());
-  window.currentListIndex = 0;
 
   pushUndoPoint();
   update();
@@ -74,7 +73,7 @@ function redo() {
 function renderPage(state) {
   const elements = [];
   elements.push(renderNavigator(state));
-  elements.push(renderList(state.lists[window.currentListIndex]));
+  elements.push(renderList(state.lists[state.currentListIndex]));
   return elements;
 }
 
@@ -92,7 +91,7 @@ function renderNavigator(state) {
     itemEl.list = list;
     itemEl.classList.add('nav-item');
     itemEl.classList.add(listHasReadyItems ? 'has-ready-items' : 'no-ready-items');
-    itemEl.classList.add(i === window.currentListIndex ? 'active' : 'not-active');
+    itemEl.classList.add(i === state.currentListIndex ? 'active' : 'not-active');
     itemEl.addEventListener('click', navListItemClick);
 
     const nameEl = itemEl.appendChild(document.createElement('h1'));
@@ -330,6 +329,7 @@ function update() {
   state.time ??= serializeDate(newTime);
   state.nextNonlinearity ??= null;
   state.lists ??= [];
+  state.currentListIndex ??= 0;
 
   // Need at least one list to render
   state.lists.length < 1 && state.lists.push({});
@@ -604,7 +604,7 @@ function navListItemClick(event) {
   const list = event.target.list ?? event.target.closest(".nav-item").list;
 
   const index = window.state.lists.indexOf(list);
-  window.currentListIndex = index;
+  window.state.currentListIndex = index;
 
   render();
 }
@@ -636,10 +636,12 @@ function endEdit() {
 }
 
 function newListClick() {
-  window.state.lists.push({});
-  window.currentListIndex = window.state.lists.length - 1;
   update();
-  render();
+
+  window.state.lists.push({});
+  window.state.currentListIndex = window.state.lists.length - 1;
+
+  finishedUserInteraction();
 }
 
 function parseCurrency(value) {
