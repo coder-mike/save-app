@@ -9,9 +9,8 @@ window.addEventListener('load', () => {
   window.state = JSON.parse(fs.readFileSync('state.json'));
   window.undoHistory = [];
   window.undoIndex = -1; // Points to the current state
-  // For the sake of debugging, we revert the state to the last committed state
-  window.statelessMode = true;
-  if (window.statelessMode) window.state.time = serializeDate(Date.now());
+  window.debugMode = false;
+  if (window.debugMode) window.state.time = serializeDate(Date.now());
 
   pushUndoPoint();
   update();
@@ -25,7 +24,7 @@ function render() {
 }
 
 function save() {
-  if (window.statelessMode) {
+  if (window.debugMode) {
     console.log('Would save here');
   } else {
     window.saveState();
@@ -77,8 +76,8 @@ function renderPage(state) {
   const pageEl = document.createElement('div');
   pageEl.classList.add('page');
 
-  if (window.statelessMode)
-    pageEl.classList.add('stateless-mode');
+  if (window.debugMode)
+    pageEl.classList.add('debug-mode');
 
   pageEl.appendChild(renderNavigator(state));
   pageEl.appendChild(renderList(state.lists[state.currentListIndex]));
@@ -276,7 +275,7 @@ function renderAmount(amount) {
   subCents.classList.add('sub-cents');
   let executingFromTimer = false;
   const update = () => {
-    if (window.isEditing) return;
+    //if (window.isEditing) return;
     // Check if element is removed
     if (executingFromTimer && !document.getElementById(amountSpan.id))
       return clearInterval(timer);
@@ -299,22 +298,24 @@ function createItemBackground(item, itemEl) {
   // This function creates the moving background div to indicate progress, which
   // only applies
   if (amount.rate || (amount.value > 0 && amount.value < item.price)) {
-    const update = () => {
+    itemEl.id = 'x' + Math.round(Math.random() * 10000000);
+    let timer;
+    const update = (synchronous) => {
+      //if (window.isEditing) return;
+      if (!synchronous && !document.getElementById(itemEl.id))
+        return clearInterval(timer);
       const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
       const percent = (value / item.price) * 100;
       const color = amount.rate ? '#c6dfe9' : '#e9e9e9'
       itemEl.style.background = `linear-gradient(90deg, ${color} ${percent}%, white ${percent}%)`;
     }
 
-    update();
+    update(true);
 
     if (amount.rate) {
       // Once a second shouldn't be to taxing, and it's probably fast enough for
       // most real-world savings
-      const timer = setInterval(update, 1000)
-      itemEl.addEventListener('DOMNodeRemoved', () => {
-        clearInterval(timer);
-      })
+      timer = setInterval(update, window.debugMode ? 100 : 1000)
     }
   }
 }
@@ -570,6 +571,7 @@ function makeEditable(el, get, set) {
   }
 
   function blur() {
+    update();
     set(el.textContent);
     endEdit();
   }
