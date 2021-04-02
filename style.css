@@ -184,11 +184,11 @@ h1.list-heading {
   margin-left: 20px;
 }
 
-.item .move-up,.move-down,.delete-item {
+.item .move-up,.move-down,.delete-item,.purchase-item {
   display: none;
 }
 
-.item:hover .move-up,.item:hover .move-down,.item:hover .delete-item {
+.item:hover .move-up,.item:hover .move-down,.item:hover .delete-item,.item:hover .purchase-item {
   display: inline-block;
 }
 

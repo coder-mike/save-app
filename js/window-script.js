@@ -214,6 +214,16 @@ function renderItem(item) {
   deleteEl.classList.add('delete-item');
   deleteEl.textContent = 'Delete';
   deleteEl.addEventListener('click', deleteItemClick)
+  deleteEl.title = 'Remove item from list and redistribute the money back into the list';
+
+  // Purchase
+  if (item.saved.value) {
+    const purchaseEl = itemEl.appendChild(document.createElement('button'));
+    purchaseEl.classList.add('purchase-item');
+    purchaseEl.textContent = 'Purchased';
+    purchaseEl.addEventListener('click', purchaseItemClick)
+    purchaseEl.title = 'Remove item from list without redistributing the money';
+  }
 
   return itemEl;
 }
@@ -429,6 +439,20 @@ function deleteItemClick(event) {
 
   // Put the value back into the kitty
   list.overflow.value += item.saved.value;
+
+  finishedUserInteraction();
+}
+
+function purchaseItemClick(event) {
+  update();
+
+  const item = event.target.closest(".item").item;
+  const list = event.target.closest(".list").list;
+  const items = list.items;
+  const index = items.indexOf(item);
+
+  // Remove without recovering the money
+  items.splice(index, 1);
 
   finishedUserInteraction();
 }
