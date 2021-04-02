@@ -3,13 +3,16 @@ const path = require('path')
 
 function createWindow () {
   const win = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1200,
+    height: 1000,
+    title: 'Save App',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     }
   })
+
+  //win.setMenuBarVisibility(false)
 
   win.loadFile('index.html')
 

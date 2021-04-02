@@ -22,13 +22,12 @@ document.addEventListener('keydown', documentKeyUp);
 
 function render() {
   const content = renderPage(window.state);
-  const page = document.getElementById('page');
-  page.replaceChildren(content)
+  document.body.replaceChildren(...content)
 }
 
 function save() {
   console.log('Would save here');
-  window.saveState();
+  //window.saveState();
 }
 
 function pushUndoPoint() {
@@ -73,14 +72,10 @@ function redo() {
 }
 
 function renderPage(state) {
-  const pageEl = document.createElement('div');
-  pageEl.classList.add('page-body');
-
-  pageEl.appendChild(renderNavigator(state));
-
-  pageEl.appendChild(renderList(state.lists[window.currentListIndex]));
-
-  return pageEl;
+  const elements = [];
+  elements.push(renderNavigator(state));
+  elements.push(renderList(state.lists[window.currentListIndex]));
+  return elements;
 }
 
 function renderNavigator(state) {
@@ -90,16 +85,17 @@ function renderNavigator(state) {
   const listListEl = navEl.appendChild(document.createElement('ul'));
   listListEl.classList.add('list-nav');
 
-  for (const list of state.lists) {
+  for (const [i, list] of state.lists.entries()) {
     const listHasReadyItems = list.items.some(item => item.saved.value >= item.price);
 
     const itemEl = listListEl.appendChild(document.createElement('li'));
     itemEl.list = list;
-    itemEl.classList.add('list');
+    itemEl.classList.add('nav-item');
     itemEl.classList.add(listHasReadyItems ? 'has-ready-items' : 'no-ready-items');
+    itemEl.classList.add(i === window.currentListIndex ? 'active' : 'not-active');
     itemEl.addEventListener('click', navListItemClick);
 
-    const nameEl = itemEl.appendChild(document.createElement('div'));
+    const nameEl = itemEl.appendChild(document.createElement('h1'));
     nameEl.textContent = list.name;
 
     const allocatedEl = itemEl.appendChild(document.createElement('div'));
@@ -119,20 +115,34 @@ function renderList(list) {
   listEl.list = list;
   listEl.classList.add('list');
 
-  const heading = listEl.appendChild(document.createElement('h1'));
+  // Header
+  const listHeaderEl = listEl.appendChild(document.createElement('div'));
+  listHeaderEl.classList.add('list-header');
+
+  // Name heading
+  const heading = listHeaderEl.appendChild(document.createElement('h1'));
   heading.classList.add('list-heading')
   makeEditable(heading, () => list.name, v => list.name = v)
 
-  const overflowEl = listEl.appendChild(document.createElement('div'));
-  overflowEl.classList.add('list-overflow');
-  overflowEl.appendChild(renderAmount(list.overflow));
+  // Overflow
+  if (list.overflow.value || list.overflow.rate) {
+    const overflowEl = listHeaderEl.appendChild(document.createElement('div'));
+    overflowEl.classList.add('list-overflow');
+    overflowEl.appendChild(renderAmount(list.overflow));
+  }
 
-  const allocatedEl = listEl.appendChild(document.createElement('div'));
+  // Allocated
+  const allocatedEl = listHeaderEl.appendChild(document.createElement('div'));
   allocatedEl.classList.add('list-allocated');
-  makeEditable(allocatedEl, () => list.allocated.dollars, v => list.allocated.dollars = v);
 
-  const allocationUnitEl = listEl.appendChild(document.createElement('div'));
-  allocationUnitEl.classList.add('list-allocation-unit');
+  // Allocated Amount
+  const allocatedAmountEl = allocatedEl.appendChild(document.createElement('div'));
+  allocatedAmountEl.classList.add('allocated-amount');
+  makeEditable(allocatedAmountEl, () => list.allocated.dollars, v => list.allocated.dollars = parseCurrency(v));
+
+  // Allocated Unit
+  const allocationUnitEl = allocatedEl.appendChild(document.createElement('div'));
+  allocationUnitEl.classList.add('allocated-unit');
   allocationUnitEl.textContent = list.allocated.unit;
 
   const itemsEl = listEl.appendChild(document.createElement('ol'));
@@ -153,8 +163,12 @@ function renderItem(item) {
   itemEl.item = item;
   itemEl.style.position = 'relative';
   itemEl.classList.add('item');
-  itemEl.classList.add(item.purchased ? 'purchased' : 'not-purchased')
-  itemEl.classList.add(item.saved.value >= item.price ? 'afforded' : 'not-afforded')
+  if (item.purchased)
+    itemEl.classList.add('purchased')
+  if (item.price > 0 && item.saved.value >= item.price)
+    itemEl.classList.add('afforded')
+  if (item.saved.value > 0 && item.saved.value < item.price)
+    itemEl.classList.add('partial-progress')
 
   createItemBackground(item, itemEl);
 
@@ -171,20 +185,17 @@ function renderItem(item) {
 
   // Price
   const priceEl = itemEl.appendChild(document.createElement('div'));
-  makeEditable(priceEl,
-    () => staticCurrencyToStr(item.price),
-    v => item.price = Math.max(parseFloat(v) || 0, 0))
+  makeEditable(priceEl, () => formatCurrency(item.price), v => item.price = parseCurrency(v))
   priceEl.classList.add('currency');
   priceEl.classList.add('price');
 
   // ETA
-  if (item.expectedDate) {
-    const etaEl = itemEl.appendChild(document.createElement('div'));
-    etaEl.classList.add('currency');
-    etaEl.classList.add('eta');
-    const etaStr = formatDate(parseDate(item.expectedDate));
-    etaEl.appendChild(document.createTextNode(etaStr));
-  }
+  const etaEl = itemEl.appendChild(document.createElement('div'));
+  etaEl.classList.add('eta');
+  const etaStr = item.expectedDate
+    ? formatDate(parseDate(item.expectedDate))
+    : 'Ready';
+  etaEl.appendChild(document.createTextNode(etaStr));
 
   // Move up
   const moveUp = itemEl.appendChild(document.createElement('button'));
@@ -209,7 +220,7 @@ function renderItem(item) {
 
 function renderAmount(amount) {
   if (!amount.rate)
-    return document.createTextNode(staticCurrencyToStr(amount.value));
+    return document.createTextNode(formatCurrency(amount.value));
 
   const node = document.createTextNode('')
   const update = () => {
@@ -236,7 +247,7 @@ function createItemBackground(item, itemEl) {
     const update = () => {
       const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
       const percent = (value / item.price) * 100;
-      itemEl.style.background = `linear-gradient(90deg, #ddeeff ${percent}%, white ${percent}%)`
+      itemEl.style.background = `linear-gradient(90deg, #c6dfe9 ${percent}%, white ${percent}%)`
     }
 
     update();
@@ -252,7 +263,7 @@ function createItemBackground(item, itemEl) {
   }
 }
 
-function staticCurrencyToStr(value) {
+function formatCurrency(value) {
   return value.toFixed(2);
 }
 
@@ -275,11 +286,14 @@ function update() {
   state.nextNonlinearity ??= null;
   state.lists ??= [];
 
+  // Need at least one list to render
+  state.lists.length < 1 && state.lists.push({});
+
   const lastCommitTime = parseDate(state.time);
   let timeOfNextNonlinearity = null;
 
   for (const list of state.lists) {
-    list.name ??= 'List';
+    list.name ??= 'Wish list';
     list.allocated ??= { dollars: 0, unit: '/month' };
     list.overflow ??= { value: 0, rate: 0 };
     list.items ??= [];
@@ -438,8 +452,18 @@ function formatDate(date) {
   if (date === Infinity)
     return 'Never';
   const d = new Date(date);
+  const now = new Date();
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${('0' + d.getHours()).slice(-2)}:${('0' + d.getMinutes()).slice(-2)}:${('0' + d.getSeconds()).slice(-2)}.${('00' + d.getMilliseconds()).slice(-3)}`;
+
+  const sameYear = d.getFullYear() === now.getFullYear()
+  const sameDate = d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && sameYear;
+  if (sameDate) {
+    return `${('0' + d.getHours()).slice(-2)}:${('0' + d.getMinutes()).slice(-2)}`
+  } else if (sameYear) {
+    return `${d.getDate()} ${months[d.getMonth()]}`;
+  } else {
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  }
 }
 
 function serializeDate(date) {
@@ -496,7 +520,7 @@ function makeEditable(el, get, set) {
 }
 
 function navListItemClick(event) {
-  const list = event.target.list ?? event.target.closest(".list").list;
+  const list = event.target.list ?? event.target.closest(".nav-item").list;
 
   const index = window.state.lists.indexOf(list);
   window.currentListIndex = index;
@@ -533,4 +557,8 @@ function newListClick() {
   window.currentListIndex = window.state.lists.length - 1;
   update();
   render();
+}
+
+function parseCurrency(value) {
+  return Math.max(parseFloat(value) || 0, 0)
 }
