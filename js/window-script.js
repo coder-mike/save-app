@@ -26,8 +26,8 @@ function render() {
 }
 
 function save() {
-  console.log('Would save here');
-  //window.saveState();
+  // console.log('Would save here');
+  window.saveState();
 }
 
 function pushUndoPoint() {
