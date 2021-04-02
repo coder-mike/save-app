@@ -100,12 +100,13 @@ function renderNavigator(state) {
 
     const allocatedEl = itemEl.appendChild(document.createElement('div'));
     allocatedEl.textContent = `$${Math.round(getAllocatedRate(list.allocated) * 365.25 / 12)} / month`;
-
   }
 
+
   const newListButton = navEl.appendChild(document.createElement('button'));
-  newListButton.textContent = 'New list';
+  newListButton.classList.add('button-new', 'svg-button');
   newListButton.addEventListener('click', newListClick);
+  newListButton.appendChild(createPlusSvg());
 
   return navEl;
 }
@@ -151,9 +152,9 @@ function renderList(list) {
   }
 
   const addItemEl = listEl.appendChild(document.createElement('button'));
-  addItemEl.classList.add('add-item');
-  addItemEl.textContent = 'New';
+  addItemEl.classList.add('add-item', 'svg-button');
   addItemEl.addEventListener('click', addItemClick);
+  addItemEl.appendChild(createPlusSvg());
 
   return listEl;
 }
@@ -643,4 +644,27 @@ function newListClick() {
 
 function parseCurrency(value) {
   return Math.max(parseFloat(value) || 0, 0)
+}
+
+function createPlusSvg() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const r = 15;
+  const margin = 2;
+  const w = r * 2 + margin * 2;
+
+  const svg = document.createElementNS(ns, 'svg');
+  svg.classList.add('plus-svg');
+  svg.setAttribute('viewBox', `${-r - margin} ${-r - margin} ${w} ${w}`);
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', w);
+  svg.style.display = 'block';
+
+  const circle = svg.appendChild(document.createElementNS(ns, 'circle'));
+  circle.setAttribute('r', r);
+
+  const plus = svg.appendChild(document.createElementNS(ns, 'path'));
+  const s = r/2;
+  plus.setAttribute('d', `M ${-s} 0 L ${s} 0 M 0 ${-s} L 0 ${s}`);
+
+  return svg;
 }

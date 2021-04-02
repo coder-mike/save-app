@@ -240,3 +240,33 @@ h1.list-heading {
   width: 0;
   margin-left: 1px;
 }
+
+button.svg-button {
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+button svg.plus-svg {
+  opacity: 0.7;
+}
+
+button:hover svg.plus-svg {
+  transform: scale(1.1);
+  opacity: 1;
+}
+
+.plus-svg circle {
+  stroke: #888;
+  stroke-width: 1px;
+  fill: #DDD;
+}
+
+.plus-svg path {
+  stroke: #444;
+  stroke-width: 2px;
+}
+
+.nav-panel .button-new {
+  margin: 10px 20px;
+}
