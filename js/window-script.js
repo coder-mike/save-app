@@ -202,26 +202,46 @@ function renderItem(item) {
   // Move up
   const moveUp = itemEl.appendChild(document.createElement('button'));
   moveUp.classList.add('move-up');
+  moveUp.classList.add('control-button');
   moveUp.textContent = 'Up';
   moveUp.addEventListener('click', moveUpClick)
 
   // Move down
   const moveDown = itemEl.appendChild(document.createElement('button'));
   moveDown.classList.add('move-down');
+  moveDown.classList.add('control-button');
   moveDown.textContent = 'Down';
   moveDown.addEventListener('click', moveDownClick)
 
   // Delete
   const deleteEl = itemEl.appendChild(document.createElement('button'));
   deleteEl.classList.add('delete-item');
+  deleteEl.classList.add('control-button');
   deleteEl.textContent = 'Delete';
   deleteEl.addEventListener('click', deleteItemClick)
   deleteEl.title = 'Remove item from list and redistribute the money back into the list';
+
+  // Empty
+  const emptyEl = itemEl.appendChild(document.createElement('button'));
+  emptyEl.classList.add('empty-item');
+  emptyEl.classList.add('control-button');
+  emptyEl.textContent = 'Empty';
+  emptyEl.addEventListener('click', emptyItemClick)
+  emptyEl.title = 'Remove all the money from the item without redistributing it';
+
+  // Redistribute
+  const redistributeEl = itemEl.appendChild(document.createElement('button'));
+  redistributeEl.classList.add('redistribute-item');
+  redistributeEl.classList.add('control-button');
+  redistributeEl.textContent = 'Redistribute';
+  redistributeEl.addEventListener('click', redistributeItemClick)
+  redistributeEl.title = 'Remove all the money and redistribute back into the list';
 
   // Purchase
   if (item.saved.value) {
     const purchaseEl = itemEl.appendChild(document.createElement('button'));
     purchaseEl.classList.add('purchase-item');
+    purchaseEl.classList.add('control-button');
     purchaseEl.textContent = 'Purchased';
     purchaseEl.addEventListener('click', purchaseItemClick)
     purchaseEl.title = 'Remove item from list without redistributing the money';
@@ -234,21 +254,32 @@ function renderAmount(amount) {
   if (!amount.rate)
     return document.createTextNode(formatCurrency(amount.value));
 
-  const node = document.createTextNode('')
+  const amountSpan = document.createElement('span');
+  amountSpan.id = 'x' + Math.round(Math.random() * 10000000);
+  amountSpan.classList.add('money');
+
+  const mainAmount = amountSpan.appendChild(document.createElement('span'));
+  mainAmount.classList.add('main-amount');
+  const subCents = amountSpan.appendChild(document.createElement('span'));
+  subCents.classList.add('sub-cents');
+  let executingFromTimer = false;
   const update = () => {
     if (window.isEditing) return;
+    // Check if element is removed
+    if (executingFromTimer && !document.getElementById(amountSpan.id))
+      return clearInterval(timer);
     const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
-    node.nodeValue = value.toFixed(4)
+    const s = value.toFixed(4)
+    mainAmount.textContent = s.slice(0, s.length - 2);
+    subCents.textContent = s.slice(-2);
   }
   update();
+  executingFromTimer = true;
   // The amount of time it takes to tick 100th of 1 cent
   const interval = 86400000 / (amount.rate * 10000);
   const timer = setInterval(update, interval)
-  node.addEventListener('DOMNodeRemoved', () => {
-    clearInterval(timer);
-  })
 
-  return node;
+  return amountSpan;
 }
 
 function createItemBackground(item, itemEl) {
@@ -442,6 +473,28 @@ function deleteItemClick(event) {
 
   // Put the value back into the kitty
   list.overflow.value += item.saved.value;
+
+  finishedUserInteraction();
+}
+
+function emptyItemClick(event) {
+  update();
+
+  const item = event.target.closest(".item").item;
+
+  item.saved.value = 0;
+
+  finishedUserInteraction();
+}
+
+function redistributeItemClick(event) {
+  update();
+
+  const item = event.target.closest(".item").item;
+  const list = event.target.closest(".list").list;
+
+  list.overflow.value += item.saved.value;
+  item.saved.value = 0;
 
   finishedUserInteraction();
 }

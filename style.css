@@ -96,12 +96,12 @@ h1.list-heading {
 
 .list-overflow {
   position: absolute;
-  top: 45px;
+  top: 42px;
   right: 50px;
 }
 
 .list-overflow::before {
-  content: 'Extra: $ ';
+  content: 'Left over: $ ';
   opacity: 0.5;
 }
 
@@ -210,11 +210,13 @@ h1.list-heading {
   font-weight: normal;
 }
 
-.item .move-up,.move-down,.delete-item,.purchase-item {
+.item .control-button {
   display: none;
+  position: relative;
+  top: 30px;
 }
 
-.item:hover .move-up,.item:hover .move-down,.item:hover .delete-item,.item:hover .purchase-item {
+.item:hover .control-button {
   display: inline-block;
 }
 
@@ -229,4 +231,12 @@ h1.list-heading {
 
 .item.active-progress {
   border-color: #c6dfe9;
+}
+
+.sub-cents {
+  font-size: 0.7em;
+  font-weight: 300;
+  display: inline-block;
+  width: 0;
+  margin-left: 1px;
 }
