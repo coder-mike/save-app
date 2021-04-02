@@ -437,7 +437,7 @@ function addItemClick(event) {
   update();
 
   const list = event.target.closest(".list").list;
-  list.items.push({});
+  list.items.push({ price: 1 });
 
   finishedUserInteraction();
 }
@@ -529,6 +529,8 @@ function navListItemClick(event) {
 }
 
 function beginEdit(el) {
+  update();
+
   window.isEditing = true;
   window.elementBeingEdited = el;
   // The nonnlinearities don't update until we finish editing, so in case the

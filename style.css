@@ -125,7 +125,7 @@ h1.list-heading {
 }
 
 .list-header:hover .list-allocated::before {
-  content: 'Allocated: $ ';
+  content: 'Budget: $ ';
   opacity: 0.5;
 }
 
