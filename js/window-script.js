@@ -98,9 +98,9 @@ function renderNavigator(state) {
     nameEl.textContent = list.name;
 
     const allocatedEl = itemEl.appendChild(document.createElement('div'));
-    allocatedEl.textContent = `$${Math.round(getAllocatedRate(list.allocated) * 365.25 / 12)} / month`;
+    const allocatedAmount = Math.round(getAllocatedRate(list.allocated) * 365.25 / 12);
+    allocatedEl.textContent = `$${allocatedAmount} / month`;
   }
-
 
   const newListButton = navEl.appendChild(document.createElement('button'));
   newListButton.classList.add('button-new', 'svg-button');
@@ -160,9 +160,10 @@ function renderList(list) {
 
 function renderItem(item) {
   const itemEl = document.createElement('li');
+
   itemEl.item = item;
-  itemEl.style.position = 'relative';
   itemEl.classList.add('item');
+  // itemEl.classList.add('item-drag-over');
   if (item.purchased)
     itemEl.classList.add('purchased')
   if (item.price > 0 && item.saved.value >= item.price)
@@ -170,51 +171,51 @@ function renderItem(item) {
   if (item.saved.value > 0 && item.saved.value < item.price)
     itemEl.classList.add('partial-progress')
   if (item.saved.rate)
-    itemEl.classList.add('active-progress')
+    itemEl.classList.add('active-progress');
 
-  createItemBackground(item, itemEl);
+  itemEl.draggable = true;
+  itemEl.addEventListener('drag', itemDrag);
+  itemEl.addEventListener('dragover', itemDragOver);
+  itemEl.addEventListener('drop', itemDrop);
+  itemEl.addEventListener('dragenter', itemDragEnter);
+  itemEl.addEventListener('dragleave', itemDragLeave);
+  itemEl.addEventListener('dragstart', itemDragStart);
+  itemEl.addEventListener('dragend', itemDragEnd);
+
+  // The outer element acts as the drag target when reordering. The inner
+  // element is the thing with the border around it
+  const itemInnerEl = itemEl.appendChild(document.createElement('div'));
+  itemInnerEl.classList.add('item-inner');
+
+  createItemBackground(item, itemInnerEl);
 
   // Name
-  const nameEl = itemEl.appendChild(document.createElement('div'));
+  const nameEl = itemInnerEl.appendChild(document.createElement('div'));
   nameEl.classList.add('item-name')
   makeEditable(nameEl, () => item.name, v => item.name = v);
 
   // Saved
-  const savedEl = itemEl.appendChild(document.createElement('div'));
+  const savedEl = itemInnerEl.appendChild(document.createElement('div'));
   savedEl.classList.add('currency');
   savedEl.classList.add('saved');
   savedEl.appendChild(renderAmount(item.saved));
 
   // Price
-  const priceEl = itemEl.appendChild(document.createElement('div'));
+  const priceEl = itemInnerEl.appendChild(document.createElement('div'));
   makeEditable(priceEl, () => formatCurrency(item.price), v => item.price = parseCurrency(v))
   priceEl.classList.add('currency');
   priceEl.classList.add('price');
 
   // ETA
-  const etaEl = itemEl.appendChild(document.createElement('div'));
+  const etaEl = itemInnerEl.appendChild(document.createElement('div'));
   etaEl.classList.add('eta');
   const etaStr = item.expectedDate
     ? formatDate(parseDate(item.expectedDate))
     : 'Ready';
   etaEl.appendChild(document.createTextNode(etaStr));
 
-  // Move up
-  const moveUp = itemEl.appendChild(document.createElement('button'));
-  moveUp.classList.add('move-up');
-  moveUp.classList.add('control-button');
-  moveUp.textContent = 'Up';
-  moveUp.addEventListener('click', moveUpClick)
-
-  // Move down
-  const moveDown = itemEl.appendChild(document.createElement('button'));
-  moveDown.classList.add('move-down');
-  moveDown.classList.add('control-button');
-  moveDown.textContent = 'Down';
-  moveDown.addEventListener('click', moveDownClick)
-
   // Delete
-  const deleteEl = itemEl.appendChild(document.createElement('button'));
+  const deleteEl = itemInnerEl.appendChild(document.createElement('button'));
   deleteEl.classList.add('delete-item');
   deleteEl.classList.add('control-button');
   deleteEl.textContent = 'Delete';
@@ -222,7 +223,7 @@ function renderItem(item) {
   deleteEl.title = 'Remove item from list and redistribute the money back into the list';
 
   // Empty
-  const emptyEl = itemEl.appendChild(document.createElement('button'));
+  const emptyEl = itemInnerEl.appendChild(document.createElement('button'));
   emptyEl.classList.add('empty-item');
   emptyEl.classList.add('control-button');
   emptyEl.textContent = 'Empty';
@@ -230,7 +231,7 @@ function renderItem(item) {
   emptyEl.title = 'Remove all the money from the item without redistributing it';
 
   // Redistribute
-  const redistributeEl = itemEl.appendChild(document.createElement('button'));
+  const redistributeEl = itemInnerEl.appendChild(document.createElement('button'));
   redistributeEl.classList.add('redistribute-item');
   redistributeEl.classList.add('control-button');
   redistributeEl.textContent = 'Redistribute';
@@ -239,7 +240,7 @@ function renderItem(item) {
 
   // Purchase
   if (item.saved.value) {
-    const purchaseEl = itemEl.appendChild(document.createElement('button'));
+    const purchaseEl = itemInnerEl.appendChild(document.createElement('button'));
     purchaseEl.classList.add('purchase-item');
     purchaseEl.classList.add('control-button');
     purchaseEl.textContent = 'Purchased';
@@ -291,7 +292,7 @@ function createItemBackground(item, itemEl) {
       const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
       const percent = (value / item.price) * 100;
       const color = amount.rate ? '#c6dfe9' : '#e9e9e9'
-      itemEl.style.background = `linear-gradient(90deg, ${color} ${percent}%, white ${percent}%)`
+      itemEl.style.background = `linear-gradient(90deg, ${color} ${percent}%, white ${percent}%)`;
     }
 
     update();
@@ -606,7 +607,7 @@ function navListItemClick(event) {
   const index = window.state.lists.indexOf(list);
   window.state.currentListIndex = index;
 
-  render();
+  finishedUserInteraction();
 }
 
 function beginEdit(el) {
@@ -669,4 +670,72 @@ function createPlusSvg() {
   plus.setAttribute('d', `M ${-s} 0 L ${s} 0 M 0 ${-s} L 0 ${s}`);
 
   return svg;
+}
+
+function itemDrag(event) {
+  const item = event.target.item ?? event.target.closest('.item').item;
+  window.draggingItem = item;
+  event.dataTransfer.dropEffect = 'move';
+}
+
+function itemDragStart(event) {
+  getItemElAtNode(event.target).classList.add('item-dragging');
+}
+
+function itemDragEnd(event) {
+  getItemElAtNode(event.target).classList.remove('item-dragging');
+}
+
+function itemDragEnter(event) {
+  console.log('dragenter', event.target);
+  if (!window.draggingItem) return;
+  const itemEl = getItemElAtNode(event.target);
+  if (itemEl.item === window.draggingItem) return;
+  itemEl.dragOverCount = (itemEl.dragOverCount ?? 0) + 1;
+  if (itemEl.dragOverCount)
+    itemEl.classList.add('item-drag-over');
+}
+
+function itemDragLeave(event) {
+  console.log('dragleave', event.target);
+  if (!window.draggingItem) return;
+  const itemEl = getItemElAtNode(event.target);
+  if (itemEl.item === window.draggingItem) return;
+  itemEl.dragOverCount = (itemEl.dragOverCount ?? 0) - 1;
+  if (!itemEl.dragOverCount)
+    itemEl.classList.remove('item-drag-over');
+}
+
+function itemDragOver(event) {
+  if (!window.draggingItem) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+}
+
+function itemDrop(event) {
+  event.preventDefault();
+
+  const sourceItem = window.draggingItem;
+  if (!sourceItem) return;
+  window.draggingItem = undefined;
+
+  event.dataTransfer.dropEffect = 'move';
+
+  update();
+
+  const list = event.target.closest('.list').list;
+  const targetItem = event.target.item ?? event.target.closest('.item').item;
+
+  const sourceIndex = list.items.indexOf(sourceItem);
+  const targetIndex = list.items.indexOf(targetItem);
+
+  list.items.splice(sourceIndex, 1);
+  list.items.splice(targetIndex, 0, sourceItem);
+
+  finishedUserInteraction();
+}
+
+function getItemElAtNode(node) {
+  if (node.item) return node;
+  return node.closest('.item');
 }

@@ -14,14 +14,10 @@ html {
   cursor: inherit;
 }
 
-body {
-  display: grid;
-  grid-template-columns: 400px auto;
-  grid-template-rows: 100%;
+ul, ol, li {
+  list-style-type: none;
   padding: 0;
   margin: 0;
-  height: 100%;
-  cursor: default;
 }
 
 *[contenteditable="true"] {
@@ -36,15 +32,20 @@ body {
   background-color: rgba(0,0,0,0.02);
 }
 
-ul, ol, li {
-  list-style-type: none;
+body {
+  display: grid;
+  grid-template-columns: 400px auto;
+  grid-template-rows: 100%;
   padding: 0;
   margin: 0;
+  height: 100%;
+  cursor: default;
 }
+
+/* ------------------------ Nav --------------------- */
 
 .nav-panel {
   background-color: rgb(245, 245, 245);
-  /* padding: 150px 0 50px 0; */
   padding: 80px 0 50px 0;
   box-shadow: inset -5px 0 3px -5px rgba(0,0,0,0.2);
   overflow-x: hidden;
@@ -67,17 +68,20 @@ ul, ol, li {
 }
 
 .nav-item h1 {
-  font-size: 1.2em;
+  font-size: 1em;
   font-weight: 500;
   padding: 0;
   margin: 0;
   margin-bottom: 4px;
 }
 
+/* ------------------------ List --------------------- */
+
 .list {
   padding: 50px;
   overflow-x: hidden;
   overflow-y: auto;
+  text-align: center;
 }
 
 .list-header {
@@ -129,24 +133,87 @@ h1.list-heading {
   opacity: 0.5;
 }
 
-.allocated-unit {
+.list .allocated-unit {
   opacity: 0.5;
 }
 
+.list .add-item {
+  margin-top: 20px;
+}
+
+/* ------------------------ Item --------------------- */
+
 .item {
+  text-align: left;
+  padding-top: 10px;
+  margin-left: -50px;
+  margin-right: -50px;
+  padding-left: 50px;
+  padding-right: 50px;
+  transition: padding-top linear 0.1s;
+}
+
+.item-inner {
   position: relative;
   height: 80px;
-  margin-bottom: 10px;
   border-radius: 5px;
   padding: 25px 30px;
   border: 2px solid #ddd;
 }
 
-.item-name {
-  font-size: 1.0em;
-  display: inline-block;
-  /* font-weight: 600; */
+.item.afforded .item-inner {
+  background-color: #f3fff2;
+  border-color: #c6e9d0;
 }
+
+.item.partial-progress .item-inner {
+  border: 2px solid #ddd;
+}
+
+.item.active-progress .item-inner {
+  border-color: #c6dfe9;
+}
+
+/* ------------------------ Item:Dragging --------------------- */
+
+.item.item-dragging {
+  opacity: 0.5;
+}
+
+.item.item-drag-over {
+  padding-top: 33px;
+}
+
+.item.item-drag-over .item-inner::before {
+  display: block;
+  height: 50px;
+  width: 100%;
+  border-bottom: 2px dashed #aaa;
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -70px;
+  /* border-radius: 5px; */
+}
+
+/* ------------------------ Item.Price --------------------- */
+
+.item .price {
+  position: absolute;
+  right: 45px;
+  top: 18px;
+  display: inline-block;
+  font-weight: 600;
+  opacity: 0.8;
+  padding: 0;
+}
+
+.item:hover .price::before {
+  content: 'Price: $ ';
+  font-weight: normal;
+}
+
+/* ------------------------ Item.Saved --------------------- */
 
 .item .saved {
   position: absolute;
@@ -171,13 +238,18 @@ h1.list-heading {
   color: #484;
 }
 
-.item .eta {
+.item:hover .saved::before {
+  content: 'Saved: $ ';
+}
+
+/* ------------------------ Item.ETA --------------------- */
+
+.item-inner .eta {
   position: absolute;
   right: 45px;
   top: 42px;
   display: inline-block;
   font-size: 0.8em;
-  /* font-weight: 500; */
 }
 
 .item:hover .eta::before {
@@ -185,29 +257,11 @@ h1.list-heading {
   opacity: 0.5;
 }
 
-.currency::before {
-  opacity: 0.5;
-  content: '$ ';
-}
+/* ------------------------ Item.Other --------------------- */
 
-.item:hover .saved::before {
-  content: 'Saved: $ ';
-}
-
-.item .price {
-  position: absolute;
-  right: 45px;
-  top: 18px;
+.item-name {
+  font-size: 1.0em;
   display: inline-block;
-  font-weight: 600;
-  opacity: 0.8;
-  padding: 0;
-  /* margin-left: 50px; */
-}
-
-.item:hover .price::before {
-  content: 'Price: $ ';
-  font-weight: normal;
 }
 
 .item .control-button {
@@ -220,26 +274,7 @@ h1.list-heading {
   display: inline-block;
 }
 
-.item.afforded {
-  background-color: #f3fff2;
-  border-color: #c6e9d0;
-}
-
-.item.partial-progress {
-  border: 2px solid #ddd;
-}
-
-.item.active-progress {
-  border-color: #c6dfe9;
-}
-
-.sub-cents {
-  font-size: 0.7em;
-  font-weight: 300;
-  display: inline-block;
-  width: 0;
-  margin-left: 1px;
-}
+/* ------------------------ Buttons  --------------------- */
 
 button.svg-button {
   border: none;
@@ -257,9 +292,9 @@ button:hover svg.plus-svg {
 }
 
 .plus-svg circle {
-  stroke: #888;
+  stroke: rgba(0,0,0,0.2);
   stroke-width: 1px;
-  fill: #DDD;
+  fill: rgba(0,0,0,0.05);
 }
 
 .plus-svg path {
@@ -269,4 +304,19 @@ button:hover svg.plus-svg {
 
 .nav-panel .button-new {
   margin: 10px 20px;
+}
+
+/* ------------------------ General --------------------- */
+
+.currency::before {
+  opacity: 0.5;
+  content: '$ ';
+}
+
+.sub-cents {
+  font-size: 0.7em;
+  font-weight: 300;
+  display: inline-block;
+  width: 0;
+  margin-left: 1px;
 }
