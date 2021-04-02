@@ -10,7 +10,8 @@ window.addEventListener('load', () => {
   window.undoHistory = [];
   window.undoIndex = -1; // Points to the current state
   // For the sake of debugging, we revert the state to the last committed state
-  window.state.time = serializeDate(Date.now());
+  window.statelessMode = true;
+  if (window.statelessMode) window.state.time = serializeDate(Date.now());
 
   pushUndoPoint();
   update();
@@ -20,13 +21,15 @@ window.addEventListener('load', () => {
 document.addEventListener('keydown', documentKeyUp);
 
 function render() {
-  const content = renderPage(window.state);
-  document.body.replaceChildren(...content)
+  document.body.replaceChildren(renderPage(window.state))
 }
 
 function save() {
-  // console.log('Would save here');
-  window.saveState();
+  if (window.statelessMode) {
+    console.log('Would save here');
+  } else {
+    window.saveState();
+  }
 }
 
 function pushUndoPoint() {
@@ -71,10 +74,15 @@ function redo() {
 }
 
 function renderPage(state) {
-  const elements = [];
-  elements.push(renderNavigator(state));
-  elements.push(renderList(state.lists[state.currentListIndex]));
-  return elements;
+  const pageEl = document.createElement('div');
+  pageEl.classList.add('page');
+
+  if (window.statelessMode)
+    pageEl.classList.add('stateless-mode');
+
+  pageEl.appendChild(renderNavigator(state));
+  pageEl.appendChild(renderList(state.lists[state.currentListIndex]));
+  return pageEl;
 }
 
 function renderNavigator(state) {
@@ -439,32 +447,6 @@ function getAllocatedRate(allocated) {
     return allocated.dollars;
   else
     throw new Error('Unknown unit')
-}
-
-function moveUpClick(event) {
-  update();
-
-  const item = event.target.closest(".item").item;
-  const list = event.target.closest(".list").list;
-  const items = list.items;
-  const index = items.indexOf(item);
-  items.splice(index, 1);
-  items.splice(index - 1, 0, item);
-
-  finishedUserInteraction();
-}
-
-function moveDownClick(event) {
-  update();
-
-  const item = event.target.closest(".item").item;
-  const list = event.target.closest(".list").list;
-  const items = list.items;
-  const index = items.indexOf(item);
-  items.splice(index, 1);
-  items.splice(index + 1, 0, item);
-
-  finishedUserInteraction();
 }
 
 function deleteItemClick(event) {

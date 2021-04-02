@@ -33,6 +33,16 @@ ul, ol, li {
 }
 
 body {
+  margin: 0;
+  padding: 0;
+}
+
+.page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: grid;
   grid-template-columns: 400px auto;
   grid-template-rows: 100%;
@@ -40,6 +50,10 @@ body {
   margin: 0;
   height: 100%;
   cursor: default;
+}
+
+.page.stateless-mode {
+  border: 5px solid red;
 }
 
 /* ------------------------ Nav --------------------- */
