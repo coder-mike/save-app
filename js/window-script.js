@@ -169,6 +169,8 @@ function renderItem(item) {
     itemEl.classList.add('afforded')
   if (item.saved.value > 0 && item.saved.value < item.price)
     itemEl.classList.add('partial-progress')
+  if (item.saved.rate)
+    itemEl.classList.add('active-progress')
 
   createItemBackground(item, itemEl);
 
@@ -257,7 +259,8 @@ function createItemBackground(item, itemEl) {
     const update = () => {
       const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
       const percent = (value / item.price) * 100;
-      itemEl.style.background = `linear-gradient(90deg, #c6dfe9 ${percent}%, white ${percent}%)`
+      const color = amount.rate ? '#c6dfe9' : '#e9e9e9'
+      itemEl.style.background = `linear-gradient(90deg, ${color} ${percent}%, white ${percent}%)`
     }
 
     update();
