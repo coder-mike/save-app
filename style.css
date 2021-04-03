@@ -115,8 +115,12 @@ h1.list-heading {
   right: 0px;
 }
 
+.list-overflow {
+  color: #040;
+}
+
 .list-overflow::before {
-  content: 'Left over: $ ';
+  content: 'Kitty: $ ';
   opacity: 0.5;
 }
 

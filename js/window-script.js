@@ -1,12 +1,19 @@
 const fs = require('fs')
 
 window.saveState = () => {
+  if (!fs.existsSync('backups')) {
+    fs.mkdirSync('backups');
+  }
   fs.renameSync('state.json', `backups/state_${Math.round(Date.now())}.json.backup`)
   fs.writeFileSync('state.json', JSON.stringify(window.state, null, 2))
 };
 
 window.addEventListener('load', () => {
-  window.state = JSON.parse(fs.readFileSync('state.json'));
+  try {
+    window.state = JSON.parse(fs.readFileSync('state.json'));
+  } catch {
+    window.state = {};
+  }
   window.undoHistory = [];
   window.undoIndex = -1; // Points to the current state
   window.debugMode = true;
