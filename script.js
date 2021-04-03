@@ -97,7 +97,10 @@ function renderNavigator(state) {
   const navEl = document.createElement('div');
   navEl.classList.add('nav-panel');
 
-  const listListEl = navEl.appendChild(document.createElement('ul'));
+  const listsSection = navEl.appendChild(document.createElement('div'));
+  listsSection.classList.add('lists-section');
+
+  const listListEl = listsSection.appendChild(document.createElement('ul'));
   listListEl.classList.add('list-nav');
 
   for (const [i, list] of state.lists.entries()) {
@@ -120,18 +123,69 @@ function renderNavigator(state) {
 
     const allocatedAmount = Math.round(getAllocatedRate(list.allocated) * 365.25 / 12);
     if (allocatedAmount) {
-      const allocatedEl = itemEl.appendChild(document.createElement('div'));
-      allocatedEl.classList.add('allocated', 'currency')
-      allocatedEl.textContent = formatCurrency(allocatedAmount, 0);
+      const allocatedEl = itemEl.appendChild(renderCurrency(allocatedAmount, 0));
+      allocatedEl.classList.add('allocated');
     }
   }
 
-  const newListButton = navEl.appendChild(document.createElement('button'));
+  const newListButton = listsSection.appendChild(document.createElement('button'));
   newListButton.classList.add('button-new', 'svg-button');
   newListButton.addEventListener('click', newListClick);
   newListButton.appendChild(createPlusSvg());
 
+  navEl.appendChild(renderTotals(state));
+
   return navEl;
+}
+
+function renderTotals(state) {
+  const totalsSection = document.createElement('div');
+  totalsSection.classList.add('totals-section');
+
+  let totalBudget = 0;
+  let totalSavedValue = 0;
+  let totalSavedRate = 0;
+  for (const list of state.lists) {
+    totalBudget += getAllocatedRate(list.allocated) * 365.25 / 12;
+    totalSavedValue += list.overflow.value;
+    totalSavedRate += list.overflow.rate;
+    for (const item of list.items) {
+      totalSavedValue += item.saved.value;
+      totalSavedRate += item.saved.rate;
+    }
+  }
+
+  const table = totalsSection.appendChild(document.createElement('table'));
+  let tr = table.appendChild(document.createElement('tr'));
+  tr.appendChild(document.createElement('td')).textContent = 'Total budget:';
+  tr.appendChild(document.createElement('td'))
+    .appendChild(renderCurrency(totalBudget, 0));
+
+  tr = table.appendChild(document.createElement('tr'));
+  tr.appendChild(document.createElement('td')).textContent = 'Total saved:';
+
+  const lastCommitTime = parseDate(state.time);
+  const totalSavedEl = tr.appendChild(document.createElement('td'))
+    .appendChild(document.createElement('span'));
+  totalSavedEl.classList.add('currency');
+  totalSavedEl.id = generateNewId();
+  const updateTotalSavedCell = synchronous => {
+    if (!synchronous && !document.getElementById(totalSavedEl.id))
+      clearInterval(timer);
+    const value = totalSavedValue + rateInDollarsPerMs(totalSavedRate) * (Date.now() - lastCommitTime)
+    totalSavedEl.textContent = formatCurrency(value, 0);
+  };
+  updateTotalSavedCell(true);
+  let timer = setInterval(updateTotalSavedCell, 1000);
+
+  return totalsSection;
+}
+
+function renderCurrency(amount, decimals = 2) {
+  const el = document.createElement('span');
+  el.classList.add('currency')
+  el.textContent = formatCurrency(amount, decimals);
+  return el;
 }
 
 function renderList(list) {
@@ -344,7 +398,7 @@ function renderAmount(amount) {
 
 
   const amountSpan = document.createElement('span');
-  amountSpan.id = 'x' + Math.round(Math.random() * 10000000);
+  amountSpan.id = generateNewId();
   amountSpan.classList.add('money');
 
   const mainAmount = amountSpan.appendChild(document.createElement('span'));
@@ -376,7 +430,7 @@ function createItemBackground(item, itemEl) {
   // This function creates the moving background div to indicate progress, which
   // only applies
   if (amount.rate || (amount.value > 0 && amount.value < item.price)) {
-    itemEl.id = 'x' + Math.round(Math.random() * 10000000);
+    itemEl.id = generateNewId();
     let timer;
     const update = (synchronous) => {
       //if (window.isEditing) return;
@@ -950,4 +1004,9 @@ function createReadyIndicatorSvg() {
   circle.setAttribute('r', r);
 
   return svg;
+}
+
+function generateNewId() {
+  window.idCounter = (window.idCounter ?? 0) + 1;
+  return `id${window.idCounter}`;
 }
