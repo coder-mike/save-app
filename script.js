@@ -162,7 +162,7 @@ function renderTotals(state) {
     .appendChild(renderCurrency(totalBudget, 0));
 
   tr = table.appendChild(document.createElement('tr'));
-  tr.appendChild(document.createElement('td')).textContent = 'Total saved:';
+  tr.appendChild(document.createElement('td')).textContent = 'Total available:';
 
   const lastCommitTime = parseDate(state.time);
   const totalSavedEl = tr.appendChild(document.createElement('td'))
@@ -645,18 +645,50 @@ function purchaseItemClick(event) {
   const list = event.target.closest(".list").list;
 
   const dialogContentEl = document.createElement('div');
+  dialogContentEl.classList.add('purchase-dialog');
 
-  const p = dialogContentEl.appendChild(document.createElement('p'));
-  p.innerHTML = `Estimated price: <span class="currency">${formatCurrency(item.price)}</span>`;
+  const dl = dialogContentEl.appendChild(document.createElement('dl'));
 
-  const p2 = dialogContentEl.appendChild(document.createElement('p'));
-  p2.innerHTML = `Available: <span class="currency">${formatCurrency(item.saved.value)}</span>`;
+  dl.appendChild(document.createElement('dt')).textContent = 'Estimated price';
+  dl.appendChild(document.createElement('dd'))
+    .appendChild(renderCurrency(item.price));
 
-  const p3 = dialogContentEl.appendChild(document.createElement('p'));
-  p3.innerHTML = `Actually paid:`;
+  dl.appendChild(document.createElement('dt')).textContent = 'Available';
+  dl.appendChild(document.createElement('dd'))
+    .appendChild(renderCurrency(item.saved.value));
 
-  const actualPriceInput = dialogContentEl.appendChild(document.createElement('input'));
+  dl.appendChild(document.createElement('dt')).textContent = 'Actually paid';
+  const actualPriceContainer = dl.appendChild(document.createElement('dd'))
+    .appendChild(document.createElement('span'));
+  actualPriceContainer.classList.add('currency');
+
+  const actualPriceInput = actualPriceContainer.appendChild(document.createElement('input'));
   actualPriceInput.value = formatCurrency(item.saved.value);
+
+  actualPriceInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
+
+  actualPriceInput.addEventListener('keyup', () => {
+    if (isNaN(parseFloat(actualPriceInput.value)))
+      return actualPriceInput.classList.add('invalid')
+
+    actualPriceInput.classList.remove('invalid');
+
+    const actualPrice = parseCurrency(actualPriceInput.value);
+
+    const toAddToKitty = item.saved.value - actualPrice;
+    if (toAddToKitty > 0.01) {
+      noteEl.style.display = 'block';
+      noteEl.textContent = `$ ${formatCurrency(toAddToKitty)} will be added back to the list`;
+    } else if (toAddToKitty < -0.01) {
+      noteEl.style.display = 'block';
+      noteEl.textContent = `$ ${formatCurrency(-toAddToKitty)} will be removed from the kitty`;
+    } else {
+      noteEl.textContent = '';
+    }
+  })
+
+  const noteEl = dialogContentEl.appendChild(document.createElement('p'));
+  noteEl.classList.add('note');
 
   showDialog('Purchase ' + item.name, dialogContentEl, [{
     text: 'Cancel',
@@ -664,25 +696,31 @@ function purchaseItemClick(event) {
   }, {
     text: 'Ok',
     classes: ['primary'],
-    action() {
-      update();
-
-      const finalPrice = parseCurrency(actualPriceInput.value);
-      // Put all the money back into the kitty except which what was paid
-      list.overflow.value += item.saved.value - finalPrice;
-
-      list.purchaseHistory.push({
-        name: item.name,
-        priceEstimate: item.price,
-        price: finalPrice,
-        purchaseDate: serializeDate(Date.now())
-      });
-
-      list.items.splice(list.items.indexOf(item), 1);
-
-      finishedUserInteraction();
-    }
+    action: apply
   }]);
+
+  actualPriceInput.focus();
+  actualPriceInput.select();
+
+  function apply() {
+    update();
+
+    const actualPrice = parseCurrency(actualPriceInput.value);
+
+    // Put all the money back into the kitty except which what was paid
+    list.overflow.value += item.saved.value - actualPrice;
+
+    list.purchaseHistory.push({
+      name: item.name,
+      priceEstimate: item.price,
+      price: actualPrice,
+      purchaseDate: serializeDate(Date.now())
+    });
+
+    list.items.splice(list.items.indexOf(item), 1);
+
+    finishedUserInteraction();
+  }
 }
 
 function showDialog(title, content, buttons) {

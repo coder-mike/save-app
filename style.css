@@ -413,7 +413,7 @@ button:hover svg.plus-svg {
 
 .dialog {
   display: block;
-  min-width: 500px;
+  min-width: 400px;
   position: absolute;
   top: 50%;
   left: 50%;
@@ -427,9 +427,11 @@ button:hover svg.plus-svg {
 .dialog header {
   text-align: center;
   min-height: 30px;
-  background-color: #444;
+  background-color: #2f3a40;
   color: white;
-  padding: 10px 30px;
+  padding: 40px 40px;
+  font-weight: 500;
+  text-transform: uppercase;
 }
 
 .dialog .dialog-body {
@@ -440,7 +442,7 @@ button:hover svg.plus-svg {
   text-align: right;
   min-height: 30px;
   background-color: #eee;
-  padding: 10px 30px;
+  padding: 10px 10px;
 }
 
 .dialog footer button {
@@ -450,21 +452,56 @@ button:hover svg.plus-svg {
   min-width: 100px;
   border: 1px solid #444;
   background-color: #eee;
+  border: none;
+  background: none;
   cursor: pointer;
   border-radius: 5px;
+  text-transform: uppercase;
+  color: #2f3a40;
 }
 
 .dialog footer button:hover {
   background-color: #ddd;
 }
 
-.dialog footer button.primary {
+/* .dialog footer button.primary {
   border: 1px solid #246;
   background-color: #cde;
+} */
+
+/* .dialog footer button.primary:hover {
+  background-color: #bcd;
+} */
+
+.purchase-dialog input {
+  font-size: 1em;
+  font-weight: 600;
+  padding: 3px;
+  width: 80px;
 }
 
-.dialog footer button.primary:hover {
-  background-color: #bcd;
+.dialog .note {
+  font-style: italic;
+  text-align: center;
+  font-size: 0.9em;
+  color: #444;
+  min-height: 20px;
+  margin-bottom: 0;
+}
+
+input {
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+input:focus {
+  outline: none;
+  border: 1px solid #2f3a40;
+}
+
+input.invalid {
+  border: 3px solid rgb(196, 14, 14);
+  border-radius: 2px;
 }
 
 /* ------------------------ History Item --------------------- */
@@ -505,6 +542,27 @@ button:hover svg.plus-svg {
 }
 
 /* ------------------------ General --------------------- */
+
+dl {
+  width: 100%;
+}
+
+dl dt {
+  display: inline-block;
+  width: 50%;
+  text-align: right;
+  margin-top: 7px;
+}
+
+dl dt::after {
+  content: ':'
+}
+
+dl dd {
+  display: inline-block;
+  text-align: left;
+  margin-left: 10px;
+}
 
 .currency::before {
   opacity: 0.5;
