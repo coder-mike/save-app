@@ -1,5 +1,7 @@
 const fs = require('fs')
 
+const svgNS = 'http://www.w3.org/2000/svg';
+
 window.saveState = () => {
   if (!fs.existsSync('backups')) {
     fs.mkdirSync('backups');
@@ -99,21 +101,29 @@ function renderNavigator(state) {
   listListEl.classList.add('list-nav');
 
   for (const [i, list] of state.lists.entries()) {
-    const listHasReadyItems = list.items.some(item => item.saved.value >= item.price);
+    const listHasReadyItems = list.items.some(item => item.saved.value && item.saved.value >= item.price);
 
     const itemEl = listListEl.appendChild(document.createElement('li'));
     itemEl.list = list;
     itemEl.classList.add('nav-item');
-    itemEl.classList.add(listHasReadyItems ? 'has-ready-items' : 'no-ready-items');
-    itemEl.classList.add(i === state.currentListIndex ? 'active' : 'not-active');
+    if (listHasReadyItems) itemEl.classList.add('has-ready-items');
+    if (i === state.currentListIndex) itemEl.classList.add('active');
     itemEl.addEventListener('click', navListItemClick);
 
     const nameEl = itemEl.appendChild(document.createElement('h1'));
     nameEl.textContent = list.name;
 
-    const allocatedEl = itemEl.appendChild(document.createElement('div'));
+    if (listHasReadyItems) {
+      const readyIndicator = itemEl.appendChild(createReadyIndicatorSvg());
+      readyIndicator.classList.add('ready-indicator');
+    }
+
     const allocatedAmount = Math.round(getAllocatedRate(list.allocated) * 365.25 / 12);
-    allocatedEl.textContent = `$${allocatedAmount} / month`;
+    if (allocatedAmount) {
+      const allocatedEl = itemEl.appendChild(document.createElement('div'));
+      allocatedEl.classList.add('allocated', 'currency')
+      allocatedEl.textContent = formatCurrency(allocatedAmount, 0);
+    }
   }
 
   const newListButton = navEl.appendChild(document.createElement('button'));
@@ -388,8 +398,8 @@ function createItemBackground(item, itemEl) {
   }
 }
 
-function formatCurrency(value) {
-  return value.toFixed(2);
+function formatCurrency(value, decimals = 2) {
+  return value.toFixed(decimals);
 }
 
 function finishedUserInteraction() {
@@ -888,39 +898,56 @@ function getItemElAtNode(node) {
 }
 
 function createSmileySvg() {
-  const ns = 'http://www.w3.org/2000/svg';
   const r = 13;
   const margin = 2;
   const w = r * 2 + margin * 2;
 
-  const svg = document.createElementNS(ns, 'svg');
+  const svg = document.createElementNS(svgNS, 'svg');
   svg.classList.add('smiley');
   svg.setAttribute('viewBox', `${-r - margin} ${-r - margin} ${w} ${w}`);
   svg.setAttribute('width', w);
   svg.setAttribute('height', w);
   svg.style.display = 'block';
 
-  const circle = svg.appendChild(document.createElementNS(ns, 'circle'));
+  const circle = svg.appendChild(document.createElementNS(svgNS, 'circle'));
   circle.classList.add('head');
   circle.setAttribute('r', r);
 
-  const leftEye = svg.appendChild(document.createElementNS(ns, 'circle'));
+  const leftEye = svg.appendChild(document.createElementNS(svgNS, 'circle'));
   leftEye.classList.add('eye');
   leftEye.setAttribute('r', 2);
   leftEye.setAttribute('cx', -4.5);
   leftEye.setAttribute('cy', -5);
 
-  const rightEye = svg.appendChild(document.createElementNS(ns, 'circle'));
+  const rightEye = svg.appendChild(document.createElementNS(svgNS, 'circle'));
   rightEye.classList.add('eye');
   rightEye.setAttribute('r', 2);
   rightEye.setAttribute('cx', 4.5);
   rightEye.setAttribute('cy', -5);
 
-  const mouth = svg.appendChild(document.createElementNS(ns, 'path'));
+  const mouth = svg.appendChild(document.createElementNS(svgNS, 'path'));
   mouth.classList.add('mouth');
   const s = 8;
   mouth.setAttribute('d', `M ${-s},0 Q ${-s},${s} 0,${s} Q ${s},${s} ${s},0 Z`);
   // mouth.setAttribute('transform', 'translate(0 1)')
+
+  return svg;
+}
+
+function createReadyIndicatorSvg() {
+  const r = 4;
+  const margin = 1;
+  const w = r * 2 + margin * 2;
+
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.classList.add('smiley');
+  svg.setAttribute('viewBox', `${-r - margin} ${-r - margin} ${w} ${w}`);
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', w);
+  svg.style.display = 'block';
+
+  const circle = svg.appendChild(document.createElementNS(svgNS, 'circle'));
+  circle.setAttribute('r', r);
 
   return svg;
 }

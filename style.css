@@ -68,6 +68,8 @@ body {
   padding: 10px 20px;
   cursor: pointer;
   border-radius: 5px;
+  display: flex;
+  align-items: center;
 }
 
 .nav-item:hover {
@@ -83,7 +85,19 @@ body {
   font-weight: 500;
   padding: 0;
   margin: 0;
-  margin-bottom: 4px;
+}
+
+.nav-item .ready-indicator {
+  margin: 3px 8px;
+}
+
+.nav-item .ready-indicator circle {
+  fill: #484;
+}
+
+.nav-item .allocated {
+  flex-grow: 1;
+  text-align: right;
 }
 
 /* ------------------------ List --------------------- */
