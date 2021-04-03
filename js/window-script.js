@@ -9,7 +9,7 @@ window.addEventListener('load', () => {
   window.state = JSON.parse(fs.readFileSync('state.json'));
   window.undoHistory = [];
   window.undoIndex = -1; // Points to the current state
-  window.debugMode = false;
+  window.debugMode = true;
   if (window.debugMode) window.state.time = serializeDate(Date.now());
 
   pushUndoPoint();
@@ -17,7 +17,7 @@ window.addEventListener('load', () => {
   render();
 });
 
-document.addEventListener('keydown', documentKeyUp);
+document.addEventListener('keydown', documentKeyDown);
 
 function render() {
   document.body.replaceChildren(renderPage(window.state))
@@ -152,7 +152,16 @@ function renderList(list) {
   allocationUnitEl.classList.add('allocated-unit');
   allocationUnitEl.textContent = list.allocated.unit;
 
+  // Purchase history
+  const historyItemsEl = listEl.appendChild(document.createElement('ol'));
+  historyItemsEl.classList.add('purchase-history');
+  for (const item of list.purchaseHistory) {
+    historyItemsEl.appendChild(renderHistoryItem(item));
+  }
+
+  // Items
   const itemsEl = listEl.appendChild(document.createElement('ol'));
+  itemsEl.classList.add('items-list');
   for (const item of list.items) {
     itemsEl.appendChild(renderItem(item));
   }
@@ -261,6 +270,32 @@ function renderItem(item) {
   return itemEl;
 }
 
+function renderHistoryItem(item) {
+  const historyItemEl = document.createElement('li');
+
+  historyItemEl.item = item;
+  historyItemEl.classList.add('history-item');
+
+  const historyItemInnerEl = historyItemEl.appendChild(document.createElement('div'));
+  historyItemInnerEl.classList.add('item-inner');
+
+  // Name
+  const nameEl = historyItemInnerEl.appendChild(document.createElement('div'));
+  nameEl.classList.add('item-name');
+  nameEl.textContent = item.name;
+
+  // Smiley
+  historyItemInnerEl.appendChild(createSmileySvg());
+
+  // Price
+  const priceEl = historyItemInnerEl.appendChild(document.createElement('div'));
+  priceEl.classList.add('currency');
+  priceEl.classList.add('price');
+  priceEl.textContent = formatCurrency(item.price);
+
+  return historyItemEl;
+}
+
 function renderAmount(amount) {
   if (!amount.rate)
     return document.createTextNode(formatCurrency(amount.value));
@@ -355,6 +390,7 @@ function update() {
     list.allocated ??= { dollars: 0, unit: '/month' };
     list.overflow ??= { value: 0, rate: 0 };
     list.items ??= [];
+    list.purchaseHistory ??= [];
 
     const allocatedRate = getAllocatedRate(list.allocated);
 
@@ -372,7 +408,7 @@ function update() {
     for (const item of list.items) {
       item.name ??= 'Item';
       item.price ??= 0;
-      item.purchased ??= false;
+      item.purchased = undefined; // TODO
       item.saved ??= { value: 0, rate: 0 };
 
       // Remaining item cost at the time of last commit
@@ -492,20 +528,89 @@ function purchaseItemClick(event) {
 
   const item = event.target.closest(".item").item;
   const list = event.target.closest(".list").list;
-  const items = list.items;
-  const index = items.indexOf(item);
 
-  // Remove without recovering the money
-  items.splice(index, 1);
+  const dialogContentEl = document.createElement('div');
 
-  finishedUserInteraction();
+  const p = dialogContentEl.appendChild(document.createElement('p'));
+  p.innerHTML = `Estimated price: <span class="currency">${formatCurrency(item.price)}</span>`;
+
+  const p2 = dialogContentEl.appendChild(document.createElement('p'));
+  p2.innerHTML = `Available: <span class="currency">${formatCurrency(item.saved.value)}</span>`;
+
+  const p3 = dialogContentEl.appendChild(document.createElement('p'));
+  p3.innerHTML = `Actually paid:`;
+
+  const actualPriceInput = dialogContentEl.appendChild(document.createElement('input'));
+  actualPriceInput.value = formatCurrency(item.saved.value);
+
+  showDialog('Purchase ' + item.name, dialogContentEl, [{
+    text: 'Cancel',
+    action: hideDialog
+  }, {
+    text: 'Ok',
+    classes: ['primary'],
+    action() {
+      update();
+
+      const finalPrice = parseCurrency(actualPriceInput.value);
+      // Put all the money back into the kitty except which what was paid
+      list.overflow.value += item.saved.value - finalPrice;
+
+      list.purchaseHistory.push({
+        name: item.name,
+        priceEstimate: item.price,
+        price: finalPrice,
+        purchaseDate: serializeDate(Date.now())
+      });
+
+      list.items.splice(list.items.indexOf(item), 1);
+
+      finishedUserInteraction();
+    }
+  }]);
+}
+
+function showDialog(title, content, buttons) {
+  // Hide previous dialog
+  hideDialog();
+
+  window.dialogBackgroundEl = document.body.appendChild(document.createElement('div'));
+  dialogBackgroundEl.classList.add('dialog-background');
+  dialogBackgroundEl.addEventListener('mousedown', hideDialog);
+
+  const dialogEl = window.dialogBackgroundEl.appendChild(document.createElement('div'));
+  dialogEl.classList.add('dialog');
+  dialogEl.addEventListener('mousedown', e => e.stopPropagation());
+
+  const headerEl = dialogEl.appendChild(document.createElement('header'));
+  headerEl.textContent = title;
+
+  const bodyEl = dialogEl.appendChild(document.createElement('div'));
+  bodyEl.classList.add('dialog-body');
+  headerEl.textContent = title;
+
+  const footerEl = dialogEl.appendChild(document.createElement('footer'));
+
+  for (const button of buttons) {
+    const buttonEl = footerEl.appendChild(document.createElement('button'));
+    button.classes && buttonEl.classList.add(...button.classes);
+    buttonEl.textContent = button.text;
+    buttonEl.addEventListener('click', button.action);
+  }
+
+  bodyEl.appendChild(content);
+}
+
+function hideDialog() {
+  window.dialogBackgroundEl && window.dialogBackgroundEl.remove();
+  window.dialogBackgroundEl = undefined;
 }
 
 function addItemClick(event) {
   update();
 
   const list = event.target.closest(".list").list;
-  list.items.push({ price: 1 });
+  list.items.push({ });
 
   finishedUserInteraction();
 }
@@ -546,7 +651,7 @@ function parseDate(date) {
     : Date.parse(date)
 }
 
-function documentKeyUp(event) {
+function documentKeyDown(event) {
   // Ctrl+Z
   if (event.keyCode === 90 && event.ctrlKey) {
     if (event.shiftKey)
@@ -555,6 +660,10 @@ function documentKeyUp(event) {
       undo();
     event.preventDefault();
     return false;
+  }
+
+  if (event.keyCode === 27) {
+    hideDialog();
   }
 }
 
@@ -725,4 +834,42 @@ function itemDrop(event) {
 function getItemElAtNode(node) {
   if (node.item) return node;
   return node.closest('.item');
+}
+
+function createSmileySvg() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const r = 13;
+  const margin = 2;
+  const w = r * 2 + margin * 2;
+
+  const svg = document.createElementNS(ns, 'svg');
+  svg.classList.add('smiley');
+  svg.setAttribute('viewBox', `${-r - margin} ${-r - margin} ${w} ${w}`);
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', w);
+  svg.style.display = 'block';
+
+  const circle = svg.appendChild(document.createElementNS(ns, 'circle'));
+  circle.classList.add('head');
+  circle.setAttribute('r', r);
+
+  const leftEye = svg.appendChild(document.createElementNS(ns, 'circle'));
+  leftEye.classList.add('eye');
+  leftEye.setAttribute('r', 2);
+  leftEye.setAttribute('cx', -4.5);
+  leftEye.setAttribute('cy', -5);
+
+  const rightEye = svg.appendChild(document.createElementNS(ns, 'circle'));
+  rightEye.classList.add('eye');
+  rightEye.setAttribute('r', 2);
+  rightEye.setAttribute('cx', 4.5);
+  rightEye.setAttribute('cy', -5);
+
+  const mouth = svg.appendChild(document.createElementNS(ns, 'path'));
+  mouth.classList.add('mouth');
+  const s = 8;
+  mouth.setAttribute('d', `M ${-s},0 Q ${-s},${s} 0,${s} Q ${s},${s} ${s},0 Z`);
+  // mouth.setAttribute('transform', 'translate(0 1)')
+
+  return svg;
 }
