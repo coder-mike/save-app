@@ -226,7 +226,16 @@ function renderItem(item) {
 
   // Price
   const priceEl = itemInnerEl.appendChild(document.createElement('div'));
-  makeEditable(priceEl, () => formatCurrency(item.price), v => item.price = parseCurrency(v))
+  makeEditable(priceEl, () => formatCurrency(item.price), v => {
+    const newPrice = parseCurrency(v);
+    const list = itemEl.closest('.list').list;
+    // Excess goes into the kitty
+    if (newPrice < item.saved.value) {
+      list.overflow.value += item.saved.value - newPrice;
+      item.saved.value = newPrice;
+    }
+    item.price = newPrice;
+  })
   priceEl.classList.add('currency');
   priceEl.classList.add('price');
 
