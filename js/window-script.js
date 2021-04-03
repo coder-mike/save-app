@@ -135,7 +135,15 @@ function renderList(list) {
   if (list.overflow.value || list.overflow.rate) {
     const overflowEl = listHeaderEl.appendChild(document.createElement('div'));
     overflowEl.classList.add('list-overflow');
-    overflowEl.appendChild(renderAmount(list.overflow));
+    if (list.overflow.value > 0) {
+      overflowEl.appendChild(renderAmount(list.overflow));
+    } else {
+      overflowEl.appendChild(renderAmount({
+        value: -list.overflow.value,
+        rate: -list.overflow.rate
+      }));
+      overflowEl.classList.add('debt');
+    }
   }
 
   // Allocated
@@ -297,8 +305,17 @@ function renderHistoryItem(item) {
 }
 
 function renderAmount(amount) {
-  if (!amount.rate)
-    return document.createTextNode(formatCurrency(amount.value));
+  if (!amount.rate) {
+    const amountSpan = document.createElement('span');
+    amountSpan.classList.add('money');
+
+    const mainAmount = amountSpan.appendChild(document.createElement('span'));
+    mainAmount.classList.add('main-amount');
+    mainAmount.textContent = formatCurrency(amount.value);
+
+    return amountSpan;
+  }
+
 
   const amountSpan = document.createElement('span');
   amountSpan.id = 'x' + Math.round(Math.random() * 10000000);
@@ -404,11 +421,29 @@ function update() {
     // eventually gets attributed to the overflow bucket
     let overflowRate = allocatedRate;
 
+    // Are we in debt?
+    let debt = 0;
+    let debtRate = 0;
+    if (remainingMoneyToAllocate < 0) {
+      // The money isn't available to allocate to further items, so we move it
+      // to the "debt" variable, which we'll put back in the overflow later
+      debt = -remainingMoneyToAllocate;
+      debtRate = -overflowRate;
+      remainingMoneyToAllocate = 0;
+      overflowRate = 0;
+
+      // How long it will take ot pay off the debt
+      timeCursor += allocatedRate ? debt / rateInDollarsPerMs(allocatedRate) : Infinity;
+
+      // The next non-linearity corresponds to when the debt is paid
+      if (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity)
+        timeOfNextNonlinearity = timeCursor;
+    }
+
     // A cascading waterfall where we allocate the new money down the list
     for (const item of list.items) {
       item.name ??= 'Item';
       item.price ??= 0;
-      item.purchased = undefined; // TODO
       item.saved ??= { value: 0, rate: 0 };
 
       // Remaining item cost at the time of last commit
@@ -442,8 +477,8 @@ function update() {
     }
 
     // If there's still money left over, it goes into the overflow
-    list.overflow.value = remainingMoneyToAllocate;
-    list.overflow.rate = overflowRate;
+    list.overflow.value = remainingMoneyToAllocate - debt;
+    list.overflow.rate = overflowRate - debtRate;
   }
 
   state.time = serializeDate(newTime);
