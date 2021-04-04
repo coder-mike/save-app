@@ -41,7 +41,7 @@ body {
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: 400px auto;
+  grid-template-columns: 300px auto;
   grid-template-rows: 100%;
   padding: 0;
   margin: 0;
@@ -61,6 +61,27 @@ table, caption, tbody, tfoot, thead, tr, th, td {
   font-size: 100%;
   vertical-align: baseline;
   background: transparent;
+}
+
+input {
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+input:focus {
+  outline: none;
+  border: 1px solid #2f3a40;
+}
+
+button {
+  background: none;
+  border: 1px solid rgba(0,0,0,0);
+  border-radius: 3px;
+}
+
+button:focus {
+  outline: none;
+  border: 1px solid #2f3a40;
 }
 
 /* ------------------------ Nav --------------------- */
@@ -96,7 +117,7 @@ table, caption, tbody, tfoot, thead, tr, th, td {
 
 .nav-panel .totals-section td:nth-child(2)  {
   font-weight: 500;
-  width: 100px;
+  width: 70px;
 }
 
 .nav-item {
@@ -139,30 +160,36 @@ table, caption, tbody, tfoot, thead, tr, th, td {
 /* ------------------------ List --------------------- */
 
 .list {
-  padding: 50px;
   overflow-x: hidden;
   overflow-y: auto;
   text-align: center;
 }
 
 .list-header {
-  height: 90px;
   position: relative;
   text-align: left;
+  display: flex;
+  align-items: center;
 }
 
-h1.list-heading {
-  padding: 0;
-  margin: 0;
+.list-header .list-name{
+  flex-grow: 1;
+}
+
+.list-header h1.list-heading {
+  margin: 0 40px;
+  padding: 10px;
   font-weight: 300;
   font-size: 2em;
   display: inline-block;
 }
 
-.list-overflow {
-  position: absolute;
-  top: 48px;
-  right: 0px;
+.list-header .list-info {
+  text-align: right;
+}
+
+.list-header .list-info>* {
+  margin: 3px;
 }
 
 .list-overflow {
@@ -191,12 +218,6 @@ h1.list-heading {
   display: inline;
 }
 
-.list-allocated {
-  position: absolute;
-  top: 19px;
-  right: 0px;
-}
-
 .list-header .list-allocated::before {
   content: '$ ';
   opacity: 0.5;
@@ -211,8 +232,32 @@ h1.list-heading {
   opacity: 0.5;
 }
 
+.list-header .menu-button-container {
+  width: 50px;
+  height: 120px;
+  text-align: right;
+}
+
+.list-header button.menu-button {
+  margin: 10px;
+  padding: 5px;
+  cursor: pointer;
+}
+
+.list-header button.menu-button:hover {
+  background-color: #eee;
+}
+
 .list .add-item {
   margin-top: 20px;
+}
+
+.list .purchase-history {
+  padding: 0 50px;
+}
+
+.list .items-list {
+  padding: 0 50px 50px 50px;
 }
 
 /* ------------------------ Item --------------------- */
@@ -396,8 +441,12 @@ button:hover svg.plus-svg {
   stroke-width: 2px;
 }
 
+.nav-panel .button-new-container {
+  text-align: center;
+}
+
 .nav-panel .button-new {
-  margin: 10px 20px;
+  margin: 10px;
 }
 
 /* ------------------------ Dialog --------------------- */
@@ -487,16 +536,6 @@ button:hover svg.plus-svg {
   color: #444;
   min-height: 20px;
   margin-bottom: 0;
-}
-
-input {
-  border: 1px solid #ddd;
-  border-radius: 3px;
-}
-
-input:focus {
-  outline: none;
-  border: 1px solid #2f3a40;
 }
 
 input.invalid {

@@ -128,7 +128,10 @@ function renderNavigator(state) {
     }
   }
 
-  const newListButton = listsSection.appendChild(document.createElement('button'));
+  const newListButtonContainer = listsSection.appendChild(document.createElement('div'));
+  newListButtonContainer.classList = 'button-new-container';
+
+  const newListButton = newListButtonContainer.appendChild(document.createElement('button'));
   newListButton.classList.add('button-new', 'svg-button');
   newListButton.addEventListener('click', newListClick);
   newListButton.appendChild(createPlusSvg());
@@ -197,28 +200,21 @@ function renderList(list) {
   const listHeaderEl = listEl.appendChild(document.createElement('div'));
   listHeaderEl.classList.add('list-header');
 
+  // Header name section
+  const listNameSection = listHeaderEl.appendChild(document.createElement('div'));
+  listNameSection.classList.add('list-name');
+
   // Name heading
-  const heading = listHeaderEl.appendChild(document.createElement('h1'));
+  const heading = listNameSection.appendChild(document.createElement('h1'));
   heading.classList.add('list-heading')
   makeEditable(heading, () => list.name, v => list.name = v)
 
-  // Overflow
-  if (list.overflow.value || list.overflow.rate) {
-    const overflowEl = listHeaderEl.appendChild(document.createElement('div'));
-    overflowEl.classList.add('list-overflow');
-    if (list.overflow.value > 0) {
-      overflowEl.appendChild(renderAmount(list.overflow));
-    } else {
-      overflowEl.appendChild(renderAmount({
-        value: -list.overflow.value,
-        rate: -list.overflow.rate
-      }));
-      overflowEl.classList.add('debt');
-    }
-  }
+  // Header info section
+  const infoEl = listHeaderEl.appendChild(document.createElement('div'));
+  infoEl.classList.add('list-info');
 
   // Allocated
-  const allocatedEl = listHeaderEl.appendChild(document.createElement('div'));
+  const allocatedEl = infoEl.appendChild(document.createElement('div'));
   allocatedEl.classList.add('list-allocated');
 
   // Allocated Amount
@@ -230,6 +226,29 @@ function renderList(list) {
   const allocationUnitEl = allocatedEl.appendChild(document.createElement('div'));
   allocationUnitEl.classList.add('allocated-unit');
   allocationUnitEl.textContent = list.allocated.unit;
+
+  // Kitty
+  if (list.overflow.value || list.overflow.rate) {
+    const overflowEl = infoEl.appendChild(document.createElement('span'));
+    overflowEl.classList.add('list-overflow');
+    if (list.overflow.value >= 0) {
+      overflowEl.appendChild(renderAmount(list.overflow));
+      overflowEl.classList.remove('debt');
+    } else {
+      overflowEl.appendChild(renderAmount({
+        value: -list.overflow.value,
+        rate: -list.overflow.rate
+      }));
+      overflowEl.classList.add('debt');
+    }
+  }
+
+  // Menu button
+  const menuButtonContainerEl = listHeaderEl.appendChild(document.createElement('div'));
+  menuButtonContainerEl.classList.add('menu-button-container')
+  const menuButtonEl = menuButtonContainerEl.appendChild(document.createElement('button'));
+  menuButtonEl.classList.add('menu-button');
+  menuButtonEl.appendChild(createMenuButtonSvg());
 
   // Purchase history
   const historyItemsEl = listEl.appendChild(document.createElement('ol'));
@@ -1047,4 +1066,27 @@ function createReadyIndicatorSvg() {
 function generateNewId() {
   window.idCounter = (window.idCounter ?? 0) + 1;
   return `id${window.idCounter}`;
+}
+
+function createMenuButtonSvg() {
+  const r = 1.5;
+  const margin = 1;
+  const pitch = r * 4;
+  const h = r * 2 + pitch * 2 + margin * 2;
+  const w = h; //r * 2 + margin * 2;
+
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.classList.add('menu-glyph');
+  svg.setAttribute('viewBox', `${-w/2} ${-h/2} ${w} ${h}`);
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', h);
+  svg.style.display = 'block';
+
+  for (let i = -1; i <= 1; i++) {
+    const circle = svg.appendChild(document.createElementNS(svgNS, 'circle'));
+    circle.setAttribute('cy', i * pitch);
+    circle.setAttribute('r', r);
+  }
+
+  return svg;
 }
