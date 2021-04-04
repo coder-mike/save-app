@@ -292,13 +292,16 @@ button:focus {
 }
 
 .item .menu-container {
-  visibility: hidden;
   width: 0px;
   position: relative;
   right: 18px;
 }
 
-.item:hover .menu-container {
+.item .menu-button {
+  visibility: hidden;
+}
+
+.item:hover .menu-button {
   visibility: visible;
 }
 
@@ -333,11 +336,36 @@ button:focus {
 .name-section {
   flex-basis: 0;
   flex-grow: 1;
+  max-width: 40%;
 }
 
 .item-name {
   font-size: 1.0em;
   display: inline-block;
+}
+
+/* ------------------------ Item.Description --------------------- */
+
+.item-description {
+  display: block;
+  font-size: 1.0em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  margin-left: 6px;
+  font-size: 0.8em;
+}
+
+.item-description a {
+  text-decoration: none;
+  color: #036;
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.item-description a:hover {
+  opacity: 1;
 }
 
 /* ------------------------ Item.Saved --------------------- */
@@ -606,7 +634,7 @@ input.invalid {
   border-radius: 3px;
   border-top: 3px solid #2f3a40;
   border-bottom: 3px solid #2f3a40;
-  z-index: 1;
+  z-index: 2;
   font-size: 0.9em;
 }
 
@@ -667,4 +695,8 @@ button.menu-button {
 
 button.menu-button:hover {
   background-color: rgba(0,0,0,0.07);
+}
+
+.edit-description-dialog input.description {
+  width: 100%;
 }

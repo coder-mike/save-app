@@ -326,6 +326,13 @@ function renderItem(item) {
   nameEl.classList.add('item-name');
   makeEditable(nameEl, () => item.name, v => item.name = v);
 
+  // Item description
+  if (item.description) {
+    const descriptionEl = nameSectionEl.appendChild(document.createElement('div'));
+    descriptionEl.classList.add('item-description');
+    descriptionEl.innerHTML = convertUrlsToLinks(item.description);
+  }
+
   // Item Saved
   const savedSectionEl = itemInnerEl.appendChild(document.createElement('div'));
   savedSectionEl.classList.add('saved-section');
@@ -385,6 +392,11 @@ function createItemMenu(item) {
     smiley.style.opacity = 0.5;
     smiley.setAttribute('width', 16);
     smiley.setAttribute('height', 16);
+
+    // Edit description
+    const editDescription = menu.newItem();
+    editDescription.textContent = `${item.description ? 'Edit' : 'Add'} description`;
+    editDescription.addEventListener('click', editItemDescriptionClick);
 
     // Redistribute
     const redistribute = menu.newItem();
@@ -675,6 +687,39 @@ function redistributeItemClick(event) {
   item.saved.value = 0;
 
   finishedUserInteraction();
+}
+
+function editItemDescriptionClick(event) {
+  update();
+
+  const item = event.target.closest(".item").item;
+
+  const dialogContentEl = document.createElement('div');
+  dialogContentEl.classList.add('edit-description-dialog');
+
+  const descriptionInput = dialogContentEl.appendChild(document.createElement('input'));
+  descriptionInput.classList.add('description');
+  descriptionInput.value = item.description ?? '';
+
+  descriptionInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
+
+  showDialog('Purchase ' + item.name, dialogContentEl, [{
+    text: 'Cancel',
+    action: hideDialog
+  }, {
+    text: 'Ok',
+    classes: ['primary'],
+    action: apply
+  }]);
+
+  descriptionInput.focus();
+  descriptionInput.select();
+
+  function apply() {
+    item.description = descriptionInput.value;
+
+    finishedUserInteraction();
+  }
 }
 
 function purchaseItemClick(event) {
@@ -1238,4 +1283,12 @@ function hideMenu() {
     menuBody.style.display = 'none';
     window.showingMenu = undefined;
   }
+}
+
+// https://stackoverflow.com/a/8943487
+function convertUrlsToLinks(text) {
+  const urlRegex =/(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
+  return text.replace(urlRegex, function(url) {
+    return '<a href="' + url + '" target="_blank">' + url + '</a>';
+  });
 }
