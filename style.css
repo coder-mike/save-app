@@ -1,5 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
 
+:root {
+  --border-radius: 4px;
+}
+
 html {
   height: 100%;
   font-family: 'Roboto', sans-serif;
@@ -124,7 +128,7 @@ button:focus {
   margin: 0px 10px;
   padding: 10px 20px;
   cursor: pointer;
-  border-radius: 5px;
+  border-radius: var(--border-radius);
   display: flex;
   align-items: center;
 }
@@ -272,7 +276,7 @@ button:focus {
 .item-inner {
   position: relative;
   height: 75px;
-  border-radius: 5px;
+  border-radius: var(--border-radius);
   padding: 22px 30px 22px 30px;
   background-color: #eee;
   display: flex;
@@ -288,9 +292,14 @@ button:focus {
 }
 
 .item .menu-container {
+  visibility: hidden;
   width: 0px;
   position: relative;
   right: 18px;
+}
+
+.item:hover .menu-container {
+  visibility: visible;
 }
 
 .item .menu-body {
@@ -393,7 +402,7 @@ button:focus {
 
 /* ------------------------ Item.ETA --------------------- */
 
-.item-inner .eta {
+.item .eta {
   display: inline-block;
   font-size: 0.8em;
   font-weight: 600;
@@ -404,6 +413,10 @@ button:focus {
   content: 'ETA: ';
   opacity: 0.5;
   font-weight: normal;
+}
+
+.item.no-eta .eta {
+  display: none;
 }
 
 /* ------------------------ Buttons  --------------------- */
@@ -461,7 +474,7 @@ button:hover svg.plus-svg {
   left: 50%;
   transform: translate(-50%, -50%);
   background-color: white;
-  border-radius: 5px;
+  border-radius: var(--border-radius);
   box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
   overflow: hidden;
 }
@@ -497,7 +510,7 @@ button:hover svg.plus-svg {
   border: none;
   background: none;
   cursor: pointer;
-  border-radius: 5px;
+  border-radius: var(--border-radius);
   text-transform: uppercase;
   color: #2f3a40;
 }

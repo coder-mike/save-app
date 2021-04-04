@@ -300,6 +300,8 @@ function renderItem(item) {
     itemEl.classList.add('partial-progress')
   if (item.saved.rate)
     itemEl.classList.add('active-progress');
+  if (!item.price || item.expectedDate == 'never')
+    itemEl.classList.add('no-eta');
 
   itemEl.draggable = true;
   itemEl.addEventListener('drag', itemDrag);
