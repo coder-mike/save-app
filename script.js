@@ -1,26 +1,69 @@
 'use strict';
 
-const fs = require('fs')
-
 const svgNS = 'http://www.w3.org/2000/svg';
 
+const userIdCookie = document.cookie.split('; ').find(row => row.startsWith('userId='));
+const userId = userIdCookie && userIdCookie.split('=')[1];
+
+let mode;
+if (userId) {
+  mode = 'online';
+} else if (typeof require !== 'undefined') {
+  mode = 'electron-local';
+} else {
+  mode = 'web-local';
+}
+
 window.saveState = () => {
-  if (!fs.existsSync('backups')) {
-    fs.mkdirSync('backups');
+  switch (mode) {
+    case 'electron-local': {
+      const fs = require('fs');
+      if (!fs.existsSync('backups')) {
+        fs.mkdirSync('backups');
+      }
+      fs.renameSync('state.json', `backups/state_${Math.round(Date.now())}.json.backup`)
+      fs.writeFileSync('state.json', JSON.stringify(window.state, null, 2));
+      break;
+    }
+    case 'web-local': {
+      localStorage.setItem('save-app-state', JSON.stringify(window.state));
+      break;
+    }
+    case 'online': {
+      console.log('TODO')
+      break;
+    }
   }
-  fs.renameSync('state.json', `backups/state_${Math.round(Date.now())}.json.backup`)
-  fs.writeFileSync('state.json', JSON.stringify(window.state, null, 2))
 };
 
-window.addEventListener('load', () => {
+window.loadState = () => {
   try {
-    window.state = JSON.parse(fs.readFileSync('state.json'));
+    switch (mode) {
+      case 'electron-local': {
+          const fs = require('fs');
+          window.state = JSON.parse(fs.readFileSync('state.json'));
+          break;
+        }
+      case 'web-local': {
+        window.state = JSON.parse(localStorage.getItem('save-app-state') ?? '{}');
+        break;
+      }
+      case 'online': {
+        console.log('TODO')
+        window.state = {};
+        break;
+      }
+    }
   } catch {
     window.state = {};
   }
+}
+
+window.addEventListener('load', () => {
+  window.loadState();
   window.undoHistory = [];
   window.undoIndex = -1; // Points to the current state
-  window.debugMode = true;
+  window.debugMode = false;
   if (window.debugMode) window.state.time = serializeDate(Date.now());
 
   pushUndoPoint();
@@ -276,13 +319,18 @@ function createListMenu() {
   return createMenu(menu => {
     menu.setIcon(createMenuButtonSvg());
 
-    const deleteList = menu.newItem();
-    deleteList.textContent = 'Delete list';
-    deleteList.addEventListener('click', deleteListClick);
-
     const listInject = menu.newItem();
     listInject.textContent = 'Inject money';
     listInject.addEventListener('click', injectMoneyClick);
+
+    const addItem = menu.newItem();
+    addItem.textContent = 'Add item';
+    addItem.addEventListener('click', addItemClick);
+
+    const deleteList = menu.newItem();
+    deleteList.textContent = 'Delete list';
+    deleteList.addEventListener('click', deleteListClick);
+    deleteList.style.color = '#611';
   })
 }
 
@@ -750,7 +798,7 @@ function purchaseItemClick(event) {
 
   const actualPriceInput = actualPriceContainer.appendChild(document.createElement('input'));
   actualPriceInput.classList.add('currency-input');
-  actualPriceInput.value = formatCurrency(item.saved.value);
+  actualPriceInput.value = formatCurrency(item.saved.value || item.price);
 
   actualPriceInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
 
