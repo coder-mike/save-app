@@ -1,3 +1,5 @@
+'use strict';
+
 const fs = require('fs')
 
 const svgNS = 'http://www.w3.org/2000/svg';
@@ -27,6 +29,7 @@ window.addEventListener('load', () => {
 });
 
 document.addEventListener('keydown', documentKeyDown);
+document.addEventListener('mousedown', documentMouseDown);
 
 function render() {
   document.body.replaceChildren(renderPage(window.state))
@@ -243,12 +246,14 @@ function renderList(list) {
     }
   }
 
-  // Menu button
-  const menuButtonContainerEl = listHeaderEl.appendChild(document.createElement('div'));
-  menuButtonContainerEl.classList.add('menu-button-container')
-  const menuButtonEl = menuButtonContainerEl.appendChild(document.createElement('button'));
-  menuButtonEl.classList.add('menu-button');
-  menuButtonEl.appendChild(createMenuButtonSvg());
+  // Menu
+  listHeaderEl.appendChild(createMenu(menu => {
+    menu.setIcon(createMenuButtonSvg());
+
+    const menuItemEl = menu.newItem();
+    menuItemEl.textContent = 'Delete list';
+    menuItemEl.addEventListener('click', deleteListClick);
+  }))
 
   // Purchase history
   const historyItemsEl = listEl.appendChild(document.createElement('ol'));
@@ -836,6 +841,7 @@ function documentKeyDown(event) {
 
   if (event.keyCode === 27) {
     hideDialog();
+    hideMenu();
   }
 }
 
@@ -1089,4 +1095,69 @@ function createMenuButtonSvg() {
   }
 
   return svg;
+}
+
+function createMenu(content) {
+  const menuContainerEl = document.createElement('div');
+  menuContainerEl.classList.add('menu-container');
+
+  const menuBodyContainerEl = menuContainerEl.appendChild(document.createElement('div'));
+  menuBodyContainerEl.classList.add('menu-body');
+  menuBodyContainerEl.addEventListener('mousedown', e => e.stopPropagation());
+
+  const menuItemsEl = menuBodyContainerEl.appendChild(document.createElement('ul'));
+  menuItemsEl.classList.add('menu-items');
+
+  const menuButtonEl = menuContainerEl.appendChild(document.createElement('button'));
+  menuButtonEl.classList.add('menu-button');
+  menuButtonEl.addEventListener('mousedown', e => e.stopPropagation());
+  menuButtonEl.addEventListener('click', menuButtonClick);
+
+  content({
+    setIcon: icon => menuButtonEl.appendChild(icon),
+    newItem() {
+      const menuItemEl = menuItemsEl.appendChild(document.createElement('li'));
+      menuItemEl.classList.add('menu-item');
+      return menuItemEl;
+    }
+  });
+
+  return menuContainerEl;
+}
+
+function menuButtonClick(event) {
+  toggleMenu(event.target.closest('.menu-container'));
+}
+
+function toggleMenu(menu) {
+  const menuBody = menu.getElementsByClassName('menu-body')[0];
+  if (menuBody.style.display === 'block') {
+    window.showingMenu = undefined;
+    menuBody.style.display = 'none';
+  } else {
+    window.showingMenu = menu;
+    menuBody.style.display = 'block';
+  }
+}
+
+function deleteListClick(event) {
+  update();
+
+  const list = event.target.closest('.list').list;
+  const lists = window.state.lists;
+  lists.splice(lists.indexOf(list), 1);
+
+  finishedUserInteraction();
+}
+
+function documentMouseDown() {
+  hideMenu();
+}
+
+function hideMenu() {
+  if (window.showingMenu) {
+    const menuBody = window.showingMenu.getElementsByClassName('menu-body')[0];
+    menuBody.style.display = 'none';
+    window.showingMenu = undefined;
+  }
 }

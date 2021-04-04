@@ -232,7 +232,7 @@ button:focus {
   opacity: 0.5;
 }
 
-.list-header .menu-button-container {
+.list-header .menu-container {
   width: 50px;
   height: 120px;
   text-align: right;
@@ -578,6 +578,34 @@ input.invalid {
   fill: none;
   stroke-linejoin: round;
   /* fill: black; */
+}
+
+/* ------------------------ Menu --------------------- */
+
+.menu-container {
+  position: relative;
+}
+
+.menu-body {
+  display: none;
+  text-align: left;
+  position: absolute;
+  width: 150px;
+  /* height: 100px; */
+  right: 40px;
+  top: 10px;
+  background-color: white;
+  box-shadow: 2px 2px 15px rgba(0,0,0,0.2);
+  border-radius: 5px;
+}
+
+.menu-item {
+  padding: 10px 20px;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background-color: #eee;
 }
 
 /* ------------------------ General --------------------- */
