@@ -149,7 +149,7 @@ button:focus {
 }
 
 .nav-item .ready-indicator circle {
-  fill: #484;
+  fill: #11a56b;
 }
 
 .nav-item .allocated {
@@ -285,6 +285,8 @@ button:focus {
   border-radius: 5px;
   padding: 22px 30px;
   background-color: #eee;
+  display: flex;
+  align-items: center;
 }
 
 .item.afforded .item-inner {
@@ -293,12 +295,6 @@ button:focus {
 
 .item.active-progress .item-inner {
   border-color: #c6dfe9;
-}
-
-.item-name {
-  font-size: 1.0em;
-  display: inline-block;
-  margin-top: 2px;
 }
 
 /* ------------------------ Item:Dragging --------------------- */
@@ -322,31 +318,26 @@ button:focus {
   top: -70px;
 }
 
-/* ------------------------ Item.Price --------------------- */
+/* ------------------------ Item.Name --------------------- */
 
-.item .price {
-  position: absolute;
-  right: 45px;
-  top: 18px;
-  display: inline-block;
-  opacity: 0.8;
-  padding: 0;
+.name-section {
+  flex-basis: 0;
+  flex-grow: 1;
 }
 
-.item:hover .price::before {
-  content: 'Price: $ ';
-  font-weight: normal;
+.item-name {
+  font-size: 1.0em;
+  display: inline-block;
 }
 
 /* ------------------------ Item.Saved --------------------- */
 
 .item .saved {
-  position: absolute;
-  right: 35%;
-  top: 18px;
+  position: relative;
   opacity: 0;
   font-weight: 300;
   font-size: 2em;
+  padding: 0px 30px;
 }
 
 .item.partial-progress .saved {
@@ -362,20 +353,49 @@ button:focus {
   color: rgb(20, 42, 20);
 }
 
-.item:hover .saved::before {
-  content: 'Saved: $ ';
-  font-size: 0.8em;
+.item:hover .saved::after {
+  content: 'Saved';
+  position: absolute;
+  font-size: 0.5em;
+  display: inline-block;
+  text-align: center;
+  top: -15px;
+  right: 0;
+  left: 0;
+  font-weight: normal;
+  opacity: 0.5;
+}
+
+/* ------------------------ Item.Info --------------------- */
+
+.item .info-section {
+  flex-grow: 1;
+  flex-basis: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+}
+
+/* ------------------------ Item.Price --------------------- */
+
+.item .price {
+  display: inline-block;
+  opacity: 0.8;
+}
+
+.item:hover .price::before {
+  content: 'Price: $ ';
+  font-weight: normal;
 }
 
 /* ------------------------ Item.ETA --------------------- */
 
 .item-inner .eta {
-  position: absolute;
-  right: 45px;
-  top: 42px;
   display: inline-block;
   font-size: 0.8em;
   font-weight: 600;
+  padding-right:5px;
 }
 
 .item:hover .eta::before {
@@ -396,7 +416,7 @@ button:focus {
 }
 
 .item:hover .button-controls {
-  display: block;
+  /* display: block; */
 }
 
 .item .control-button {
@@ -648,3 +668,6 @@ dl dd {
   margin-left: 1px;
 }
 
+.currency {
+  white-space: nowrap;
+}

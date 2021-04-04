@@ -316,19 +316,27 @@ function renderItem(item) {
 
   createItemBackground(item, itemInnerEl);
 
-  // Name
-  const nameEl = itemInnerEl.appendChild(document.createElement('div'));
+  // Item Name
+  const nameSectionEl = itemInnerEl.appendChild(document.createElement('div'));
+  nameSectionEl.classList.add('name-section');
+  const nameEl = nameSectionEl.appendChild(document.createElement('div'));
   nameEl.classList.add('item-name')
   makeEditable(nameEl, () => item.name, v => item.name = v);
 
-  // Saved
-  const savedEl = itemInnerEl.appendChild(document.createElement('div'));
+  // Item Saved
+  const savedSectionEl = itemInnerEl.appendChild(document.createElement('div'));
+  savedSectionEl.classList.add('saved-section');
+  const savedEl = savedSectionEl.appendChild(document.createElement('span'));
   savedEl.classList.add('currency');
   savedEl.classList.add('saved');
   savedEl.appendChild(renderAmount(item.saved));
 
-  // Price
-  const priceEl = itemInnerEl.appendChild(document.createElement('div'));
+  // Item Info section
+  const infoSectionEl = itemInnerEl.appendChild(document.createElement('div'));
+  infoSectionEl.classList.add('info-section');
+
+  // Item Price
+  const priceEl = infoSectionEl.appendChild(document.createElement('span'));
   makeEditable(priceEl, () => formatCurrency(item.price), v => {
     const newPrice = parseCurrency(v);
     const list = itemEl.closest('.list').list;
@@ -342,8 +350,8 @@ function renderItem(item) {
   priceEl.classList.add('currency');
   priceEl.classList.add('price');
 
-  // ETA
-  const etaEl = itemInnerEl.appendChild(document.createElement('div'));
+  // Item ETA
+  const etaEl = infoSectionEl.appendChild(document.createElement('span'));
   etaEl.classList.add('eta');
   const etaStr = item.expectedDate
     ? formatDate(parseDate(item.expectedDate))
