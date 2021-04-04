@@ -462,8 +462,9 @@ function createItemBackground(item, itemEl) {
         return clearInterval(timer);
       const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
       const percent = (value / item.price) * 100;
-      const color = amount.rate ? '#c6dfe9' : '#e9e9e9'
-      itemEl.style.background = `linear-gradient(90deg, ${color} ${percent}%, white ${percent}%)`;
+      const color1 = amount.rate ? '#afd9ea' : '#dddddd';
+      const color2 = amount.rate ? '#e1ecf1' : '#eaeaea';
+      itemEl.style.background = `linear-gradient(90deg, ${color1} ${percent}%, ${color2} ${percent}%)`;
     }
 
     update(true);
@@ -961,7 +962,6 @@ function itemDragEnd(event) {
 }
 
 function itemDragEnter(event) {
-  console.log('dragenter', event.target);
   if (!window.draggingItem) return;
   const itemEl = getItemElAtNode(event.target);
   if (itemEl.item === window.draggingItem) return;
@@ -971,7 +971,6 @@ function itemDragEnter(event) {
 }
 
 function itemDragLeave(event) {
-  console.log('dragleave', event.target);
   if (!window.draggingItem) return;
   const itemEl = getItemElAtNode(event.target);
   if (itemEl.item === window.draggingItem) return;

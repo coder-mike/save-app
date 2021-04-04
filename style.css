@@ -88,7 +88,7 @@ button:focus {
 
 .nav-panel {
   background-color: rgb(245, 245, 245);
-  padding: 80px 0 30px 0;
+  padding: 80px 0 10px 0;
   box-shadow: inset -5px 0 3px -5px rgba(0,0,0,0.2);
   overflow-x: hidden;
   overflow-y: auto;
@@ -256,6 +256,13 @@ button:focus {
   padding: 0 50px;
 }
 
+.list .purchase-history .history-item:last-child::after {
+  content: '';
+  display: block;
+  margin: 10px 10px 0px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+}
+
 .list .items-list {
   padding: 0 50px 50px 50px;
 }
@@ -277,20 +284,21 @@ button:focus {
   height: 75px;
   border-radius: 5px;
   padding: 22px 30px;
-  border: 2px solid #ddd;
+  background-color: #eee;
 }
 
 .item.afforded .item-inner {
-  background-color: #f3fff2;
-  border-color: #c6e9d0;
-}
-
-.item.partial-progress .item-inner {
-  border: 2px solid #ddd;
+  background-color: #afead3;
 }
 
 .item.active-progress .item-inner {
   border-color: #c6dfe9;
+}
+
+.item-name {
+  font-size: 1.0em;
+  display: inline-block;
+  margin-top: 2px;
 }
 
 /* ------------------------ Item:Dragging --------------------- */
@@ -312,7 +320,6 @@ button:focus {
   position: absolute;
   left: 0;
   top: -70px;
-  /* border-radius: 5px; */
 }
 
 /* ------------------------ Item.Price --------------------- */
@@ -322,7 +329,6 @@ button:focus {
   right: 45px;
   top: 18px;
   display: inline-block;
-  font-weight: 600;
   opacity: 0.8;
   padding: 0;
 }
@@ -339,7 +345,7 @@ button:focus {
   right: 35%;
   top: 18px;
   opacity: 0;
-  font-weight: 400;
+  font-weight: 300;
   font-size: 2em;
 }
 
@@ -353,12 +359,12 @@ button:focus {
 }
 
 .item.afforded .saved {
-  opacity: 1;
-  color: #484;
+  color: rgb(20, 42, 20);
 }
 
 .item:hover .saved::before {
   content: 'Saved: $ ';
+  font-size: 0.8em;
 }
 
 /* ------------------------ Item.ETA --------------------- */
@@ -369,6 +375,7 @@ button:focus {
   top: 42px;
   display: inline-block;
   font-size: 0.8em;
+  font-weight: 600;
 }
 
 .item:hover .eta::before {
@@ -404,13 +411,6 @@ button:focus {
 .item .control-button:hover {
   background-color: #eee;
   border-color: #888;
-}
-
-/* ------------------------ Item.Other --------------------- */
-
-.item-name {
-  font-size: 1.0em;
-  display: inline-block;
 }
 
 /* ------------------------ Buttons  --------------------- */
@@ -546,8 +546,8 @@ input.invalid {
 /* ------------------------ History Item --------------------- */
 
 .history-item .item-inner {
-  background-color: #eee;
-  border: 2px solid #eee;
+  background-color: #ddd;
+  /* border: 2px solid #eee; */
   height: 50px;
   padding: 15px 34px;
 }
