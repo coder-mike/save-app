@@ -30,6 +30,7 @@ window.addEventListener('load', () => {
 
 document.addEventListener('keydown', documentKeyDown);
 document.addEventListener('mousedown', documentMouseDown);
+window.addEventListener('blur', windowBlurEvent);
 
 function render() {
   document.body.replaceChildren(renderPage(window.state))
@@ -320,7 +321,7 @@ function renderItem(item) {
   const nameSectionEl = itemInnerEl.appendChild(document.createElement('div'));
   nameSectionEl.classList.add('name-section');
   const nameEl = nameSectionEl.appendChild(document.createElement('div'));
-  nameEl.classList.add('item-name')
+  nameEl.classList.add('item-name');
   makeEditable(nameEl, () => item.name, v => item.name = v);
 
   // Item Saved
@@ -361,41 +362,43 @@ function renderItem(item) {
   const buttonControlsEl = itemInnerEl.appendChild(document.createElement('div'));
   buttonControlsEl.classList.add('button-controls');
 
-  // Delete
-  const deleteEl = buttonControlsEl.appendChild(document.createElement('button'));
-  deleteEl.classList.add('delete-item');
-  deleteEl.classList.add('control-button');
-  deleteEl.textContent = 'Delete';
-  deleteEl.addEventListener('click', deleteItemClick)
-  deleteEl.title = 'Remove item from list and redistribute the money back into the list';
-
-  // Empty
-  const emptyEl = buttonControlsEl.appendChild(document.createElement('button'));
-  emptyEl.classList.add('empty-item');
-  emptyEl.classList.add('control-button');
-  emptyEl.textContent = 'Empty';
-  emptyEl.addEventListener('click', emptyItemClick)
-  emptyEl.title = 'Remove all the money from the item without redistributing it';
-
-  // Redistribute
-  const redistributeEl = buttonControlsEl.appendChild(document.createElement('button'));
-  redistributeEl.classList.add('redistribute-item');
-  redistributeEl.classList.add('control-button');
-  redistributeEl.textContent = 'Redistribute';
-  redistributeEl.addEventListener('click', redistributeItemClick)
-  redistributeEl.title = 'Remove all the money and redistribute back into the list';
-
-  // Purchase
-  if (item.saved.value) {
-    const purchaseEl = buttonControlsEl.appendChild(document.createElement('button'));
-    purchaseEl.classList.add('purchase-item');
-    purchaseEl.classList.add('control-button');
-    purchaseEl.textContent = 'Purchased';
-    purchaseEl.addEventListener('click', purchaseItemClick)
-    purchaseEl.title = 'Remove item from list without redistributing the money';
-  }
+  // Item menu
+  itemInnerEl.appendChild(createItemMenu(item));
 
   return itemEl;
+}
+
+function createItemMenu(item) {
+  return createMenu(menu => {
+    menu.setIcon(createMenuButtonSvg());
+
+    // Purchase
+    const purchaseItem = menu.newItem();
+    purchaseItem.textContent = 'Purchased';
+    purchaseItem.addEventListener('click', purchaseItemClick);
+    const smiley = purchaseItem.appendChild(createSmileySvg())
+    smiley.style.display = 'inline';
+    smiley.style.marginLeft = '7px';
+    smiley.style.marginBottom = '-2px';
+    smiley.style.opacity = 0.5;
+    smiley.setAttribute('width', 16);
+    smiley.setAttribute('height', 16);
+
+    // Redistribute
+    const redistribute = menu.newItem();
+    redistribute.textContent = `Redistribute $${formatCurrency(item.saved.value)}`;
+    redistribute.addEventListener('click', redistributeItemClick);
+
+    // Delete
+    const deleteItem = menu.newItem();
+    if (item.saved.value >= 1) {
+      deleteItem.textContent = `Delete ${item.name} (recover $${formatCurrency(item.saved.value, 0)})`;
+    } else {
+      deleteItem.textContent = `Delete ${item.name}`;
+    }
+    deleteItem.style.color = '#611';
+    deleteItem.addEventListener('click', deleteItemClick);
+  })
 }
 
 function renderHistoryItem(item) {
@@ -660,16 +663,6 @@ function deleteItemClick(event) {
   finishedUserInteraction();
 }
 
-function emptyItemClick(event) {
-  update();
-
-  const item = event.target.closest(".item").item;
-
-  item.saved.value = 0;
-
-  finishedUserInteraction();
-}
-
 function redistributeItemClick(event) {
   update();
 
@@ -683,6 +676,8 @@ function redistributeItemClick(event) {
 }
 
 function purchaseItemClick(event) {
+  hideMenu();
+
   update();
 
   const item = event.target.closest(".item").item;
@@ -866,6 +861,10 @@ function documentKeyDown(event) {
   }
 }
 
+function windowBlurEvent() {
+  hideMenu();
+}
+
 function makeEditable(el, get, set) {
   el.setAttribute('contentEditable', true);
   el.addEventListener('focus', focus)
@@ -1040,7 +1039,7 @@ function getItemElAtNode(node) {
 
 function createSmileySvg() {
   const r = 13;
-  const margin = 2;
+  const margin = 1;
   const w = r * 2 + margin * 2;
 
   const svg = document.createElementNS(svgNS, 'svg');
@@ -1159,6 +1158,7 @@ function toggleMenu(menu) {
     window.showingMenu = undefined;
     menuBody.style.display = 'none';
   } else {
+    hideMenu();
     window.showingMenu = menu;
     menuBody.style.display = 'block';
   }

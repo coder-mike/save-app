@@ -238,16 +238,6 @@ button:focus {
   text-align: right;
 }
 
-.list-header button.menu-button {
-  margin: 10px;
-  padding: 5px;
-  cursor: pointer;
-}
-
-.list-header button.menu-button:hover {
-  background-color: #eee;
-}
-
 .list .add-item {
   margin-top: 20px;
 }
@@ -283,7 +273,7 @@ button:focus {
   position: relative;
   height: 75px;
   border-radius: 5px;
-  padding: 22px 30px;
+  padding: 22px 30px 22px 30px;
   background-color: #eee;
   display: flex;
   align-items: center;
@@ -295,6 +285,17 @@ button:focus {
 
 .item.active-progress .item-inner {
   border-color: #c6dfe9;
+}
+
+.item .menu-container {
+  width: 0px;
+  position: relative;
+  right: 18px;
+}
+
+.item .menu-body {
+  right: -8px;
+  width: 350px;
 }
 
 /* ------------------------ Item:Dragging --------------------- */
@@ -375,6 +376,7 @@ button:focus {
   flex-direction: column;
   justify-content: center;
   align-items: flex-end;
+  padding-right: 10px;
 }
 
 /* ------------------------ Item.Price --------------------- */
@@ -402,36 +404,6 @@ button:focus {
   content: 'ETA: ';
   opacity: 0.5;
   font-weight: normal;
-}
-
-/* ------------------------ Item.Buttons --------------------- */
-
-.item .button-controls {
-  display: none;
-  position: absolute;
-  left: 40px;
-  top: 60px;
-  height: 40px;
-  z-index: 1;
-}
-
-.item:hover .button-controls {
-  /* display: block; */
-}
-
-.item .control-button {
-  width: 100px;
-  height: 20px;
-  margin-right: 10px;
-  border-radius: 10px;
-  border: 1px solid #aaa;
-  background-color: white;
-  cursor: pointer;
-}
-
-.item .control-button:hover {
-  background-color: #eee;
-  border-color: #888;
 }
 
 /* ------------------------ Buttons  --------------------- */
@@ -621,6 +593,8 @@ input.invalid {
   border-radius: 3px;
   border-top: 3px solid #2f3a40;
   border-bottom: 3px solid #2f3a40;
+  z-index: 1;
+  font-size: 0.9em;
 }
 
 .menu-item {
@@ -670,4 +644,14 @@ dl dd {
 
 .currency {
   white-space: nowrap;
+}
+
+button.menu-button {
+  margin: 10px;
+  padding: 5px;
+  cursor: pointer;
+}
+
+button.menu-button:hover {
+  background-color: rgba(0,0,0,0.07);
 }
