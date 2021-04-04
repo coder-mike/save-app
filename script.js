@@ -247,13 +247,7 @@ function renderList(list) {
   }
 
   // Menu
-  listHeaderEl.appendChild(createMenu(menu => {
-    menu.setIcon(createMenuButtonSvg());
-
-    const menuItemEl = menu.newItem();
-    menuItemEl.textContent = 'Delete list';
-    menuItemEl.addEventListener('click', deleteListClick);
-  }))
+  listHeaderEl.appendChild(createListMenu())
 
   // Purchase history
   const historyItemsEl = listEl.appendChild(document.createElement('ol'));
@@ -275,6 +269,20 @@ function renderList(list) {
   addItemEl.appendChild(createPlusSvg());
 
   return listEl;
+}
+
+function createListMenu() {
+  return createMenu(menu => {
+    menu.setIcon(createMenuButtonSvg());
+
+    const deleteList = menu.newItem();
+    deleteList.textContent = 'Delete list';
+    deleteList.addEventListener('click', deleteListClick);
+
+    const listInject = menu.newItem();
+    listInject.textContent = 'Inject money';
+    listInject.addEventListener('click', injectMoneyClick);
+  })
 }
 
 function renderItem(item) {
@@ -504,6 +512,9 @@ function update() {
   // Need at least one list to render
   state.lists.length < 1 && state.lists.push({});
 
+  state.currentListIndex = Math.max(state.currentListIndex, 0);
+  state.currentListIndex = Math.min(state.currentListIndex, state.lists.length - 1);
+
   const lastCommitTime = parseDate(state.time);
   let timeOfNextNonlinearity = null;
 
@@ -688,6 +699,7 @@ function purchaseItemClick(event) {
   actualPriceContainer.classList.add('currency');
 
   const actualPriceInput = actualPriceContainer.appendChild(document.createElement('input'));
+  actualPriceInput.classList.add('currency-input');
   actualPriceInput.value = formatCurrency(item.saved.value);
 
   actualPriceInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
@@ -859,9 +871,13 @@ function makeEditable(el, get, set) {
   }
 
   function blur() {
-    update();
-    set(el.textContent);
-    endEdit();
+    if (el.textContent !== get()) {
+      update();
+      set(el.textContent);
+      endEdit(true);
+    } else {
+      endEdit(false);
+    }
   }
 
   function keypress(event) {
@@ -904,11 +920,12 @@ function editTimeout() {
   window.elementBeingEdited && window.elementBeingEdited.blur();
 }
 
-function endEdit() {
+function endEdit(changed = true) {
   window.isEditing = false;
   window.elementBeingEdited = null;
   clearTimeout(window.editingTimeout);
-  finishedUserInteraction();
+  if (changed)
+    finishedUserInteraction();
 }
 
 function newListClick() {
@@ -1145,8 +1162,60 @@ function deleteListClick(event) {
   const list = event.target.closest('.list').list;
   const lists = window.state.lists;
   lists.splice(lists.indexOf(list), 1);
+  window.state.currentListIndex--;
 
   finishedUserInteraction();
+}
+
+function injectMoneyClick(event) {
+  hideMenu();
+
+  update();
+
+  const list = event.target.closest('.list').list;
+
+  const dialogContentEl = document.createElement('div');
+
+  const dl = dialogContentEl.appendChild(document.createElement('dl'));
+
+  dl.appendChild(document.createElement('dt')).textContent = 'Amount';
+  const amountContainer = dl.appendChild(document.createElement('dd'))
+    .appendChild(document.createElement('span'));
+  amountContainer.classList.add('currency');
+
+  const amountInput = amountContainer.appendChild(document.createElement('input'));
+  amountInput.classList.add('currency-input');
+  amountInput.value = formatCurrency(0);
+
+  amountInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
+
+  amountInput.addEventListener('keyup', () => {
+    if (isNaN(parseFloat(amountInput.value)))
+      amountInput.classList.add('invalid')
+    else
+      amountInput.classList.remove('invalid');
+  })
+
+  showDialog(`Add money to ${list.name}`, dialogContentEl, [{
+    text: 'Cancel',
+    action: hideDialog
+  }, {
+    text: 'Inject',
+    action: apply
+  }]);
+
+  amountInput.focus();
+  amountInput.select();
+
+  function apply() {
+    update();
+
+    const amount = parseCurrency(amountInput.value);
+
+    list.overflow.value += amount;
+
+    finishedUserInteraction();
+  }
 }
 
 function documentMouseDown() {

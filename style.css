@@ -381,6 +381,7 @@ button:focus {
 .item:hover .eta::before {
   content: 'ETA: ';
   opacity: 0.5;
+  font-weight: normal;
 }
 
 /* ------------------------ Item.Buttons --------------------- */
@@ -522,11 +523,12 @@ button:hover svg.plus-svg {
   background-color: #bcd;
 } */
 
-.purchase-dialog input {
+.dialog .currency-input {
   font-size: 1em;
   font-weight: 600;
   padding: 3px;
   width: 80px;
+  text-align: right;
 }
 
 .dialog .note {
@@ -595,17 +597,19 @@ input.invalid {
   right: 40px;
   top: 10px;
   background-color: white;
-  box-shadow: 2px 2px 15px rgba(0,0,0,0.2);
-  border-radius: 5px;
+  box-shadow: 2px 2px 15px rgba(0,0,0,0.3);
+  border-radius: 3px;
+  border-top: 3px solid #2f3a40;
+  border-bottom: 3px solid #2f3a40;
 }
 
 .menu-item {
-  padding: 10px 20px;
+  padding: 8px 20px;
   cursor: pointer;
 }
 
 .menu-item:hover {
-  background-color: #eee;
+  background-color: #ddd;
 }
 
 /* ------------------------ General --------------------- */
