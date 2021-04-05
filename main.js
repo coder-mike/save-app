@@ -5,7 +5,7 @@ function createWindow () {
   const win = new BrowserWindow({
     width: 1200,
     height: 1000,
-    title: 'Save App',
+    title: 'Squirrel Away',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false

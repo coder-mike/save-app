@@ -1,4 +1,4 @@
-# Save App
+# Squirrel Away
 
 A simple app to help to limit spending. You create a list of things you want, and specify how much money you want to budget for the list per month, and it counts money gradually towards each item until you've waited long enough to purchase it.
 

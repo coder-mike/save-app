@@ -4,6 +4,6 @@ appropriately and don't deploy the config.php file */
 define('DB_SERVER', 'localhost');
 define('DB_USERNAME', 'root');
 define('DB_PASSWORD', '');
-define('DB_NAME', 'save-app');
+define('DB_NAME', 'squirrel-away');
 
 
