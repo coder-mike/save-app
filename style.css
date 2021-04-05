@@ -92,12 +92,72 @@ button:focus {
 
 .nav-panel {
   background-color: rgb(245, 245, 245);
-  padding: 80px 0 10px 0;
+  padding: 0px 0 10px 0;
   box-shadow: inset -5px 0 3px -5px rgba(0,0,0,0.2);
   overflow-x: hidden;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+}
+
+.nav-panel .user-panel {
+  position: relative;
+  text-align: center;
+  padding: 10px;
+  background-color: #444;
+  color: white;
+  font-size: 0.8em;
+  margin-bottom: 50px;
+}
+
+.nav-panel .user-status {
+  line-height: 1.6;
+}
+
+.nav-panel .user-panel-buttons {
+  margin: 10px 0 5px 0;
+}
+
+.user-panel button {
+  width: 130px;
+  margin: 5px;
+  color: white;
+  cursor: pointer;
+  padding: 5px;
+  background-color: rgba(255,255,255,0.1);
+}
+
+.user-panel button:hover {
+  background-color: rgba(255,255,255,0.2);
+}
+
+.online .nav-panel .user-panel {
+  background-color: #afead3;
+  color: rgba(0,0,0,0.7);
+  padding: 0;
+  text-align: left;
+  padding: 13px;
+}
+
+.online .nav-panel .user-status {
+  display: inline-block;
+}
+
+.online .nav-panel .user-panel-buttons {
+  display: inline-block;
+  position: absolute;
+  right: 5px;
+  top: -5px;
+  /* margin: -10px -10px -10px 100px; */
+}
+
+.online .user-panel button {
+  color: black;
+  background-color: rgba(0,0,0,0.1);
+}
+
+.online .user-panel button:hover {
+  background-color: rgba(0,0,0,0.2);
 }
 
 .nav-panel .lists-section {
@@ -258,7 +318,7 @@ button:focus {
 }
 
 .list .items-list {
-  padding: 0 50px 50px 50px;
+  padding: 0 50px 10px 50px;
 }
 
 /* ------------------------ Item --------------------- */
@@ -547,15 +607,6 @@ button:hover svg.plus-svg {
   background-color: #ddd;
 }
 
-/* .dialog footer button.primary {
-  border: 1px solid #246;
-  background-color: #cde;
-} */
-
-/* .dialog footer button.primary:hover {
-  background-color: #bcd;
-} */
-
 .dialog .currency-input {
   font-size: 1em;
   font-weight: 600;
@@ -576,6 +627,18 @@ button:hover svg.plus-svg {
 input.invalid {
   border: 3px solid rgb(196, 14, 14);
   border-radius: 2px;
+}
+
+.dialog label {
+  display: block;
+  font-size: 0.8em;
+  margin-top: 10px;
+  margin-bottom: 2px;
+}
+
+.dialog input[type=text], .dialog input[type=password], .dialog input[type=email] {
+  font-size: 1em;
+  padding: 5px;
 }
 
 /* ------------------------ History Item --------------------- */
@@ -698,5 +761,9 @@ button.menu-button:hover {
 }
 
 .edit-description-dialog input.description {
+  width: 100%;
+}
+
+.sign-up-dialog input, .login-dialog input {
   width: 100%;
 }

@@ -2,19 +2,13 @@
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
-const userIdCookie = document.cookie.split('; ').find(row => row.startsWith('userId='));
-const userId = userIdCookie && userIdCookie.split('=')[1];
+const userInfoStorage = localStorage && localStorage.getItem('user-info');
+if (userInfoStorage) window.userInfo = JSON.parse(userInfoStorage);
 
 let mode;
-if (userId) {
-  mode = 'online';
-} else if (typeof require !== 'undefined') {
-  mode = 'electron-local';
-} else {
-  mode = 'web-local';
-}
+detectMode();
 
-window.saveState = () => {
+window.saveState = async () => {
   switch (mode) {
     case 'electron-local': {
       const fs = require('fs');
@@ -23,34 +17,51 @@ window.saveState = () => {
       }
       fs.renameSync('state.json', `backups/state_${Math.round(Date.now())}.json.backup`)
       fs.writeFileSync('state.json', JSON.stringify(window.state, null, 2));
+      console.log('Saved to file');
       break;
     }
     case 'web-local': {
-      localStorage.setItem('save-app-state', JSON.stringify(window.state));
+      localStorage.setItem('squirrel-away-state', JSON.stringify(window.state));
+      console.log('Saved to localStorage');
       break;
     }
     case 'online': {
-      console.log('TODO')
+      await apiRequest('save', {
+        userId: window.userInfo.id,
+        state: window.state
+      })
+      console.log('Saved to server');
       break;
     }
   }
 };
 
-window.loadState = () => {
+window.loadState = async () => {
   try {
     switch (mode) {
       case 'electron-local': {
-          const fs = require('fs');
-          window.state = JSON.parse(fs.readFileSync('state.json'));
-          break;
-        }
+        const fs = require('fs');
+        window.state = JSON.parse(fs.readFileSync('state.json'));
+        console.log('Loaded state from file');
+        break;
+      }
       case 'web-local': {
-        window.state = JSON.parse(localStorage.getItem('save-app-state') ?? '{}');
+        window.state = JSON.parse(localStorage.getItem('squirrel-away-state') ?? '{}');
+        console.log('Loaded state from localStorage');
         break;
       }
       case 'online': {
-        console.log('TODO')
-        window.state = {};
+        const response = await apiRequest('load', { userId: window.userInfo.id })
+        if (response.success) {
+          window.state = response.state;
+          window.userInfo = response.userInfo;
+          console.log('Loaded state from server');
+        } else {
+          console.log('Failed to load state from server');
+          delete window.userInfo;
+          detectMode();
+          await window.loadState();
+        }
         break;
       }
     }
@@ -59,8 +70,8 @@ window.loadState = () => {
   }
 }
 
-window.addEventListener('load', () => {
-  window.loadState();
+window.addEventListener('load', async() => {
+  await window.loadState();
   window.undoHistory = [];
   window.undoIndex = -1; // Points to the current state
   window.debugMode = false;
@@ -135,6 +146,8 @@ function renderPage(state) {
   if (window.debugMode)
     pageEl.classList.add('debug-mode');
 
+  pageEl.classList.add(mode);
+
   pageEl.appendChild(renderNavigator(state));
   pageEl.appendChild(renderList(state.lists[state.currentListIndex]));
   return pageEl;
@@ -143,6 +156,33 @@ function renderPage(state) {
 function renderNavigator(state) {
   const navEl = document.createElement('div');
   navEl.classList.add('nav-panel');
+
+  const userPanel = navEl.appendChild(document.createElement('div'))
+  userPanel.classList.add('user-panel')
+  const userStatusEl = userPanel.appendChild(document.createElement('div'))
+  userStatusEl.classList.add('user-status');
+  const userPanelButtonsEl = userPanel.appendChild(document.createElement('div'))
+  userPanelButtonsEl.classList.add('user-panel-buttons');
+  if (mode === 'online') {
+    userStatusEl.innerHTML = 'Online';
+
+    const signOutButton = userPanelButtonsEl.appendChild(document.createElement('button'));
+    signOutButton.className = 'sign-up';
+    signOutButton.textContent = 'Sign out';
+    signOutButton.addEventListener('click', signOutClick);
+  } else {
+    userStatusEl.innerHTML = 'Your lists are currently stored locally';
+
+    const signUpButton = userPanelButtonsEl.appendChild(document.createElement('button'));
+    signUpButton.className = 'sign-up';
+    signUpButton.textContent = 'New account';
+    signUpButton.addEventListener('click', signUpClick);
+
+    const signInButton = userPanelButtonsEl.appendChild(document.createElement('button'));
+    signInButton.className = 'sign-in';
+    signInButton.textContent = 'Sign in';
+    signInButton.addEventListener('click', signInClick);
+  }
 
   const listsSection = navEl.appendChild(document.createElement('div'));
   listsSection.classList.add('lists-section');
@@ -1339,4 +1379,171 @@ function convertUrlsToLinks(text) {
   return text.replace(urlRegex, function(url) {
     return '<a href="' + url + '" target="_blank">' + url + '</a>';
   });
+}
+
+function apiRequest(cmd, data) {
+  return new Promise((resolve, reject) => {
+    console.log(`-> ${cmd}`);
+    const req = new XMLHttpRequest();
+    req.open('post', 'api.php', true);
+    req.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+    req.onload = () => {
+      if (req.status >= 200 && req.status < 300) {
+        console.log(`<- ${cmd}`);
+        resolve(JSON.parse(req.responseText));
+      } else {
+        console.error(`x- ${cmd}`);
+        reject('API error');
+      }
+    };
+    req.send(JSON.stringify({ cmd, data }));
+  })
+}
+
+function signInClick() {
+  const dialogContentEl = document.createElement('div');
+  dialogContentEl.classList.add('login-dialog');
+
+  const userEmailLabel = dialogContentEl.appendChild(document.createElement('label'));
+  userEmailLabel.setAttribute('for', 'email');
+  userEmailLabel.textContent = 'Email';
+
+  const userEmailEl = dialogContentEl.appendChild(document.createElement('input'));
+  userEmailEl.setAttribute('type', 'email');
+  userEmailEl.setAttribute('name', 'email');
+  userEmailEl.classList.add('email');
+  userEmailEl.value = '';
+
+  const userPasswordLabel = dialogContentEl.appendChild(document.createElement('label'));
+  userPasswordLabel.setAttribute('for', 'password');
+  userPasswordLabel.textContent = 'Password';
+
+  const userPasswordEl = dialogContentEl.appendChild(document.createElement('input'));
+  userPasswordEl.setAttribute('type', 'password');
+  userPasswordEl.setAttribute('name', 'password');
+  userPasswordEl.classList.add('password');
+  userPasswordEl.value = '';
+
+  const errorNotice = dialogContentEl.appendChild(document.createElement('div'));
+  errorNotice.classList = 'login-error';
+
+  userPasswordEl.addEventListener('keyup', e => e.code === 'Enter' && apply());
+
+  showDialog('Sign in', dialogContentEl, [{
+    text: 'Cancel',
+    action: hideDialog
+  }, {
+    text: 'Ok',
+    classes: ['primary'],
+    action: apply
+  }]);
+
+  userEmailEl.focus();
+  userEmailEl.select();
+
+  async function apply() {
+    const email = userEmailEl.value;
+    const password = userPasswordEl.value;
+
+    const result = await apiRequest('login', { email, password });
+    if (result.success) {
+      mode = 'online';
+      window.state = result.state;
+      window.userInfo = result.userInfo;
+      localStorage.setItem('user-info', JSON.stringify(window.userInfo));
+
+      finishedUserInteraction();
+    } else {
+      errorNotice.textContent = 'Failed to log in: ' + (result.reason ?? '')
+    }
+  }
+}
+
+function signUpClick() {
+  const dialogContentEl = document.createElement('div');
+  dialogContentEl.classList.add('sign-up-dialog');
+
+  const nameLabel = dialogContentEl.appendChild(document.createElement('label'));
+  nameLabel.setAttribute('for', 'name');
+  nameLabel.textContent = 'Your name';
+
+  const nameEl = dialogContentEl.appendChild(document.createElement('input'));
+  nameEl.setAttribute('type', 'text');
+  nameEl.setAttribute('name', 'name');
+  nameEl.classList.add('name');
+  nameEl.value = '';
+
+  const userEmailLabel = dialogContentEl.appendChild(document.createElement('label'));
+  userEmailLabel.setAttribute('for', 'email');
+  userEmailLabel.textContent = 'Email';
+
+  const userEmailEl = dialogContentEl.appendChild(document.createElement('input'));
+  userEmailEl.setAttribute('type', 'email');
+  userEmailEl.setAttribute('name', 'email');
+  userEmailEl.classList.add('email');
+  userEmailEl.value = '';
+
+  const userPasswordLabel = dialogContentEl.appendChild(document.createElement('label'));
+  userPasswordLabel.setAttribute('for', 'password');
+  userPasswordLabel.textContent = 'Password';
+
+  const userPasswordEl = dialogContentEl.appendChild(document.createElement('input'));
+  userPasswordEl.setAttribute('type', 'password');
+  userPasswordEl.setAttribute('name', 'password');
+  userPasswordEl.classList.add('password');
+  userPasswordEl.value = '';
+
+  const errorNotice = dialogContentEl.appendChild(document.createElement('div'));
+  errorNotice.classList = 'login-error';
+
+  userPasswordEl.addEventListener('keyup', e => e.code === 'Enter' && apply());
+
+  showDialog('New Account', dialogContentEl, [{
+    text: 'Cancel',
+    action: hideDialog
+  }, {
+    text: 'Ok',
+    classes: ['primary'],
+    action: apply
+  }]);
+
+  nameEl.focus();
+  nameEl.select();
+
+  async function apply() {
+    const name = nameEl.value;
+    const email = userEmailEl.value;
+    const password = userPasswordEl.value;
+    const state = window.state;
+
+    const result = await apiRequest('new-account', { name, email, password, state });
+    if (result.success) {
+      mode = 'online';
+      window.state = result.state;
+      window.userInfo = result.userInfo;
+      localStorage.setItem('user-info', JSON.stringify(window.userInfo));
+
+      finishedUserInteraction();
+    } else {
+      errorNotice.textContent = 'Failed to log in: ' + (result.reason ?? '')
+    }
+  }
+}
+
+function detectMode() {
+  if (window.userInfo?.id) {
+    mode = 'online';
+  } else if (typeof require !== 'undefined') {
+    mode = 'electron-local';
+  } else {
+    mode = 'web-local';
+  }
+}
+
+async function signOutClick() {
+  delete window.userInfo;
+  localStorage && localStorage.removeItem('user-info');
+  detectMode();
+  await loadState();
+  finishedUserInteraction();
 }
