@@ -953,7 +953,7 @@ function addItemClick(event) {
 
   const itemNames = document.getElementsByClassName('item-name');
   const addedItemName = itemNames[itemNames.length - 1];
-  focusOnEditable(addedItemName);
+  selectAllInContentEditable(addedItemName);
 }
 
 // For debuggability, the rates are stored in dollars per day, but we need them
@@ -1023,6 +1023,9 @@ function makeEditable(el, get, set, requiresRender = true) {
   function focus() {
     beginEdit();
     el.textContent = get();
+    setTimeout(() => {
+      selectAllInContentEditable(el);
+    }, 1)
   }
 
   function blur() {
@@ -1097,7 +1100,7 @@ function newListClick() {
   finishedUserInteraction();
 
   const listHeading = document.getElementById('list-heading');
-  focusOnEditable(listHeading);
+  selectAllInContentEditable(listHeading);
 }
 
 function parseCurrency(value) {
@@ -1584,7 +1587,7 @@ function restoreScrollPosition() {
   list.scrollTop = window.listScrollPosition;
 }
 
-function focusOnEditable(el) {
+function selectAllInContentEditable(el) {
   el.focus();
   document.execCommand('selectAll', false, null);
 }
