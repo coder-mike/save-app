@@ -221,6 +221,12 @@ button:focus {
   text-align: right;
 }
 
+.nav-panel .report-issues {
+  text-align: right;
+  padding: 10px 30px;
+  font-size: 0.8em;
+}
+
 /* ------------------------ List --------------------- */
 
 .list {
@@ -415,17 +421,6 @@ button:focus {
   max-width: 100%;
   margin-left: 6px;
   font-size: 0.8em;
-}
-
-.item-description a {
-  text-decoration: none;
-  color: #036;
-  opacity: 0.8;
-  cursor: pointer;
-}
-
-.item-description a:hover {
-  opacity: 1;
 }
 
 /* ------------------------ Item.Saved --------------------- */
@@ -766,4 +761,15 @@ button.menu-button:hover {
 
 .sign-up-dialog input, .login-dialog input {
   width: 100%;
+}
+
+a {
+  text-decoration: none;
+  color: #036;
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+a:hover {
+  opacity: 1;
 }

@@ -14,3 +14,4 @@ A simple app to help to limit spending. You create a list of things you want, an
   - OR host the files on a PHP server with `config.php` configured with the local database connection
 
 
+

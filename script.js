@@ -164,13 +164,13 @@ function renderNavigator(state) {
   const userPanelButtonsEl = userPanel.appendChild(document.createElement('div'))
   userPanelButtonsEl.classList.add('user-panel-buttons');
   if (mode === 'online') {
-    userStatusEl.innerHTML = 'Online';
+    userStatusEl.innerHTML = `Hi, ${window.userInfo.name}`;
 
     const signOutButton = userPanelButtonsEl.appendChild(document.createElement('button'));
     signOutButton.className = 'sign-up';
     signOutButton.textContent = 'Sign out';
     signOutButton.addEventListener('click', signOutClick);
-  } else {
+  } else if (mode === 'web-local') {
     userStatusEl.innerHTML = 'Your lists are currently stored locally';
 
     const signUpButton = userPanelButtonsEl.appendChild(document.createElement('button'));
@@ -223,7 +223,13 @@ function renderNavigator(state) {
   newListButton.addEventListener('click', newListClick);
   newListButton.appendChild(createPlusSvg());
 
+  // Totals
   navEl.appendChild(renderTotals(state));
+
+  // Report issues
+  const reportIssuesEl = navEl.appendChild(document.createElement('div'));
+  reportIssuesEl.className = 'report-issues';
+  reportIssuesEl.innerHTML = '<a href="https://github.com/coder-mike/squirrel-away/issues" target="_blank">Feedback or problems</a>';
 
   return navEl;
 }
@@ -483,7 +489,7 @@ function createItemMenu(item) {
 
     // Edit description
     const editDescription = menu.newItem();
-    editDescription.textContent = `${item.description ? 'Edit' : 'Add'} description`;
+    editDescription.textContent = `${item.description ? 'Edit' : 'Add'} note`;
     editDescription.addEventListener('click', editItemDescriptionClick);
 
     // Redistribute
@@ -791,7 +797,7 @@ function editItemDescriptionClick(event) {
 
   descriptionInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
 
-  showDialog('Purchase ' + item.name, dialogContentEl, [{
+  showDialog('Add note for ' + item.name, dialogContentEl, [{
     text: 'Cancel',
     action: hideDialog
   }, {
@@ -1522,6 +1528,8 @@ function signUpClick() {
       window.state = result.state;
       window.userInfo = result.userInfo;
       localStorage.setItem('user-info', JSON.stringify(window.userInfo));
+      // The next time the user logs out, they won't see the state, so it's hopefully less confusing
+      localStorage.removeItem('state');
 
       finishedUserInteraction();
     } else {
