@@ -302,8 +302,9 @@ function renderList(list) {
 
   // Name heading
   const heading = listNameSection.appendChild(document.createElement('h1'));
+  heading.id = 'list-heading';
   heading.classList.add('list-heading')
-  makeEditable(heading, () => list.name, v => list.name = v, false)
+  makeEditable(heading, () => list.name, v => list.name = v)
 
   // Header info section
   const infoEl = listHeaderEl.appendChild(document.createElement('div'));
@@ -388,7 +389,6 @@ function renderItem(item) {
 
   itemEl.item = item;
   itemEl.classList.add('item');
-  // itemEl.classList.add('item-drag-over');
   if (item.purchased)
     itemEl.classList.add('purchased')
   if (item.price > 0 && item.saved.value >= item.price)
@@ -950,6 +950,10 @@ function addItemClick(event) {
   list.items.push({ });
 
   finishedUserInteraction();
+
+  const itemNames = document.getElementsByClassName('item-name');
+  const addedItemName = itemNames[itemNames.length - 1];
+  focusOnEditable(addedItemName);
 }
 
 // For debuggability, the rates are stored in dollars per day, but we need them
@@ -1082,10 +1086,18 @@ function endEdit(changed = true, requiresRender = true) {
 function newListClick() {
   update();
 
-  window.state.lists.push({});
+  let newListName = 'Wish list';
+  let counter = 1;
+  while (window.state.lists.some(l => l.name === newListName))
+    newListName = `Wish list ${++counter}`;
+
+  window.state.lists.push({ name: newListName });
   window.state.currentListIndex = window.state.lists.length - 1;
 
   finishedUserInteraction();
+
+  const listHeading = document.getElementById('list-heading');
+  focusOnEditable(listHeading);
 }
 
 function parseCurrency(value) {
@@ -1570,4 +1582,9 @@ function restoreScrollPosition() {
   // is lost and you go back up to the top.
   const list = document.getElementById('current-list');
   list.scrollTop = window.listScrollPosition;
+}
+
+function focusOnEditable(el) {
+  el.focus();
+  document.execCommand('selectAll', false, null);
 }
