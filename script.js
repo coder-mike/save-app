@@ -303,7 +303,7 @@ function renderList(list) {
   // Name heading
   const heading = listNameSection.appendChild(document.createElement('h1'));
   heading.classList.add('list-heading')
-  makeEditable(heading, () => list.name, v => list.name = v)
+  makeEditable(heading, () => list.name, v => list.name = v, false)
 
   // Header info section
   const infoEl = listHeaderEl.appendChild(document.createElement('div'));
@@ -421,7 +421,7 @@ function renderItem(item) {
   nameSectionEl.classList.add('name-section');
   const nameEl = nameSectionEl.appendChild(document.createElement('div'));
   nameEl.classList.add('item-name');
-  makeEditable(nameEl, () => item.name, v => item.name = v);
+  makeEditable(nameEl, () => item.name, v => item.name = v, false);
 
   // Item description
   if (item.description) {
@@ -611,9 +611,9 @@ function formatCurrency(value, decimals = 2) {
   return value.toFixed(decimals);
 }
 
-function finishedUserInteraction() {
+function finishedUserInteraction(requiresRender = true) {
   update();
-  render();
+  if (requiresRender) render();
   pushUndoPoint();
   save();
 }
@@ -1009,7 +1009,7 @@ function windowBlurEvent() {
   hideMenu();
 }
 
-function makeEditable(el, get, set) {
+function makeEditable(el, get, set, requiresRender = true) {
   el.setAttribute('contentEditable', true);
   el.addEventListener('focus', focus)
   el.addEventListener('blur', blur)
@@ -1025,7 +1025,7 @@ function makeEditable(el, get, set) {
     if (el.textContent !== get()) {
       update();
       set(el.textContent);
-      endEdit(true);
+      endEdit(true, requiresRender);
     } else {
       endEdit(false);
     }
@@ -1071,12 +1071,12 @@ function editTimeout() {
   window.elementBeingEdited && window.elementBeingEdited.blur();
 }
 
-function endEdit(changed = true) {
+function endEdit(changed = true, requiresRender = true) {
   window.isEditing = false;
   window.elementBeingEdited = null;
   clearTimeout(window.editingTimeout);
   if (changed)
-    finishedUserInteraction();
+    finishedUserInteraction(requiresRender);
 }
 
 function newListClick() {
