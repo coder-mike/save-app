@@ -87,7 +87,9 @@ document.addEventListener('mousedown', documentMouseDown);
 window.addEventListener('blur', windowBlurEvent);
 
 function render() {
+  saveScrollPosition();
   document.body.replaceChildren(renderPage(window.state))
+  restoreScrollPosition();
 }
 
 function save() {
@@ -286,6 +288,7 @@ function renderCurrency(amount, decimals = 2) {
 
 function renderList(list) {
   const listEl = document.createElement('div');
+  listEl.id = 'current-list';
   listEl.list = list;
   listEl.classList.add('list');
 
@@ -1554,4 +1557,17 @@ async function signOutClick() {
   detectMode();
   await loadState();
   finishedUserInteraction();
+}
+
+function saveScrollPosition() {
+  const list = document.getElementById('current-list');
+  if (list) window.listScrollPosition = list.scrollTop;
+}
+
+function restoreScrollPosition() {
+  // This is a hack to keep the user scrolled to the right location when the
+  // page refreshes. Otherwise, whenever you add a new item, the scroll position
+  // is lost and you go back up to the top.
+  const list = document.getElementById('current-list');
+  list.scrollTop = window.listScrollPosition;
 }
