@@ -304,7 +304,7 @@ function renderList(list) {
   const heading = listNameSection.appendChild(document.createElement('h1'));
   heading.id = 'list-heading';
   heading.classList.add('list-heading')
-  makeEditable(heading, () => list.name, v => list.name = v)
+  makeEditable(heading, { obj: list, field: 'name' });
 
   // Header info section
   const infoEl = listHeaderEl.appendChild(document.createElement('div'));
@@ -317,7 +317,11 @@ function renderList(list) {
   // Allocated Amount
   const allocatedAmountEl = allocatedEl.appendChild(document.createElement('div'));
   allocatedAmountEl.classList.add('allocated-amount');
-  makeEditable(allocatedAmountEl, () => list.allocated.dollars, v => list.allocated.dollars = parseCurrency(v));
+  makeEditable(allocatedAmountEl, {
+    obj: list.allocated,
+    field: 'dollars',
+    writeTransform: parseCurrency
+  });
 
   // Allocated Unit
   const allocationUnitEl = allocatedEl.appendChild(document.createElement('div'));
@@ -421,7 +425,11 @@ function renderItem(item) {
   nameSectionEl.classList.add('name-section');
   const nameEl = nameSectionEl.appendChild(document.createElement('div'));
   nameEl.classList.add('item-name');
-  makeEditable(nameEl, () => item.name, v => item.name = v, false);
+  makeEditable(nameEl, {
+    obj: item,
+    field: 'name',
+    requiresRender: false
+  });
 
   // Item description
   if (item.description) {
@@ -444,16 +452,21 @@ function renderItem(item) {
 
   // Item Price
   const priceEl = infoSectionEl.appendChild(document.createElement('span'));
-  makeEditable(priceEl, () => formatCurrency(item.price), v => {
-    const newPrice = parseCurrency(v);
-    const list = itemEl.closest('.list').list;
-    // Excess goes into the kitty
-    if (newPrice < item.saved.value) {
-      list.overflow.value += item.saved.value - newPrice;
-      item.saved.value = newPrice;
+  makeEditable(priceEl, {
+    obj: item,
+    field: 'price',
+    readTransform: formatCurrency,
+    writeTransform: v => {
+      const newPrice = parseCurrency(v);
+      const list = itemEl.closest('.list').list;
+      // Excess goes into the kitty
+      if (newPrice < item.saved.value) {
+        list.overflow.value += item.saved.value - newPrice;
+        item.saved.value = newPrice;
+      }
+      return newPrice;
     }
-    item.price = newPrice;
-  })
+  });
   priceEl.classList.add('currency');
   priceEl.classList.add('price');
 
@@ -629,6 +642,7 @@ function update() {
   state.time ??= serializeDate(newTime);
   state.nextNonlinearity ??= null;
   state.lists ??= [];
+  state.id ??= uuidv4();
   state.currentListIndex ??= 0;
 
   // Need at least one list to render
@@ -646,6 +660,7 @@ function update() {
     list.overflow ??= { value: 0, rate: 0 };
     list.items ??= [];
     list.purchaseHistory ??= [];
+    list.id ??= uuidv4();
 
     const allocatedRate = getAllocatedRate(list.allocated);
 
@@ -683,6 +698,7 @@ function update() {
       item.name ??= 'Item';
       item.price ??= 0;
       item.saved ??= { value: 0, rate: 0 };
+      item.id ??= uuidv4();
 
       // Remaining item cost at the time of last commit
       const remainingCost = item.price - item.saved.value;
@@ -1013,25 +1029,34 @@ function windowBlurEvent() {
   hideMenu();
 }
 
-function makeEditable(el, get, set, requiresRender = true) {
+function makeEditable(el, { obj, field, readTransform, writeTransform, requiresRender }) {
+  requiresRender ??= true;
+  writeTransform ??= v => v;
+  readTransform ??= v => v;
+  const read = () => readTransform(obj[field]);
+  const write = value => {
+    obj[field] = writeTransform(value);
+    obj[field + 'Modified'] = serializeDate(Date.now());
+  }
+
   el.setAttribute('contentEditable', true);
   el.addEventListener('focus', focus)
   el.addEventListener('blur', blur)
   el.addEventListener('keypress', keypress)
-  el.textContent = get();
+  el.textContent = read();
 
   function focus() {
     beginEdit();
-    el.textContent = get();
+    el.textContent = read();
     setTimeout(() => {
       selectAllInContentEditable(el);
     }, 1)
   }
 
   function blur() {
-    if (el.textContent !== get()) {
+    if (el.textContent !== read()) {
       update();
-      set(el.textContent);
+      write(el.textContent);
       endEdit(true, requiresRender);
     } else {
       endEdit(false);
@@ -1187,6 +1212,9 @@ function itemDrop(event) {
 
   list.items.splice(sourceIndex, 1);
   list.items.splice(targetIndex, 0, sourceItem);
+
+  sourceItem.index = targetIndex;
+  sourceItem.indexModified = serializeDate(Date.now());
 
   finishedUserInteraction();
 }
@@ -1590,4 +1618,11 @@ function restoreScrollPosition() {
 function selectAllInContentEditable(el) {
   el.focus();
   document.execCommand('selectAll', false, null);
+}
+
+// https://stackoverflow.com/a/2117523
+function uuidv4() {
+  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  );
 }
