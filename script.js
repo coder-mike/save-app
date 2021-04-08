@@ -87,6 +87,10 @@ document.addEventListener('mousedown', documentMouseDown);
 window.addEventListener('blur', windowBlurEvent);
 
 function render() {
+  window.currentListIndex ??= 0;
+  window.currentListIndex = Math.max(window.currentListIndex, 0);
+  window.currentListIndex = Math.min(window.currentListIndex, window.state.lists.length - 1);
+
   saveScrollPosition();
   document.body.replaceChildren(renderPage(window.state))
   restoreScrollPosition();
@@ -110,7 +114,10 @@ function pushUndoPoint() {
   // The undo history needs to contain a *copy* of all the information in the
   // current state. It's easiest to just serialize it and then we can
   // deserialize IFF we need to undo
-  window.undoHistory[window.undoIndex] = JSON.stringify(window.state);
+  window.undoHistory[window.undoIndex] = {
+    currentListIndex: window.currentListIndex,
+    state: JSON.stringify(window.state)
+  }
 }
 
 function undo() {
@@ -120,7 +127,9 @@ function undo() {
   window.undoIndex--;
 
   // Restore to the previous state
-  window.state = JSON.parse(window.undoHistory[window.undoIndex]);
+  const { state, currentListIndex } = window.undoHistory[window.undoIndex];
+  window.state = JSON.parse(state);
+  window.currentListIndex = currentListIndex;
 
   update();
   render();
@@ -134,7 +143,9 @@ function redo() {
   window.undoIndex++;
 
   // Restore to the state
-  window.state = JSON.parse(window.undoHistory[window.undoIndex]);
+  const { state, currentListIndex } = window.undoHistory[window.undoIndex];
+  window.state = JSON.parse(state);
+  window.currentListIndex = currentListIndex;
 
   update();
   render();
@@ -151,7 +162,7 @@ function renderPage(state) {
   pageEl.classList.add(mode);
 
   pageEl.appendChild(renderNavigator(state));
-  pageEl.appendChild(renderList(state.lists[state.currentListIndex]));
+  pageEl.appendChild(renderList(state.lists[window.currentListIndex]));
   return pageEl;
 }
 
@@ -199,7 +210,7 @@ function renderNavigator(state) {
     itemEl.list = list;
     itemEl.classList.add('nav-item');
     if (listHasReadyItems) itemEl.classList.add('has-ready-items');
-    if (i === state.currentListIndex) itemEl.classList.add('active');
+    if (i === window.currentListIndex) itemEl.classList.add('active');
     itemEl.addEventListener('click', navListItemClick);
 
     const nameEl = itemEl.appendChild(document.createElement('h1'));
@@ -676,13 +687,9 @@ function project(state, toTime) {
   state.nextNonlinearity ??= null;
   state.lists ??= [];
   state.id ??= uuidv4();
-  state.currentListIndex ??= 0;
 
   // Need at least one list to render
   state.lists.length < 1 && state.lists.push({});
-
-  state.currentListIndex = Math.max(state.currentListIndex, 0);
-  state.currentListIndex = Math.min(state.currentListIndex, state.lists.length - 1);
 
   const lastCommitTime = deserializeDate(state.time);
   let timeOfNextNonlinearity = null;
@@ -1087,7 +1094,7 @@ function navListItemClick(event) {
   const list = event.target.list ?? event.target.closest(".nav-item").list;
 
   const index = window.state.lists.indexOf(list);
-  window.state.currentListIndex = index;
+  window.currentListIndex = index;
 
   finishedUserInteraction();
 }
@@ -1127,7 +1134,7 @@ function newListClick() {
 
   foldAction(window.state, { type: 'ListNew', name });
 
-  window.state.currentListIndex = window.state.lists.length - 1;
+  window.currentListIndex = window.state.lists.length - 1;
 
   finishedUserInteraction();
 
@@ -1362,7 +1369,7 @@ function deleteListClick(event) {
   const list = event.target.closest('.list').list;
 
   foldAction(window.state, { type: 'ListDelete', listId: list.id })
-  window.state.currentListIndex--;
+  window.currentListIndex--;
 
   finishedUserInteraction();
 }
@@ -1634,6 +1641,7 @@ function uuidv4() {
 
 // Mutates `state` to include the effect of the given action
 function foldAction(state, action) {
+  action.id ??= uuidv4();
   action.time ??= serializeDate(Date.now());
   const time = deserializeDate(action.time);
 
@@ -1641,12 +1649,11 @@ function foldAction(state, action) {
 
   // For backwards compatibility with states that weren't created using an actions list
   if (!state.actions) {
+    const initialState = { ...state };
     state.actions = [];
-    state.hash = 'd41d8cd98f00b204e9800998ecf8427e';
-    foldAction(state, { type: 'InitialState', state });
+    state.hash = 'd41d8cd98f00b204e9800998ecf8427e'; // Empty hash
+    foldAction(state, { type: 'InitialState', state: initialState });
   }
-
-  state.actions.push(action);
 
   // Like a git hash, if "actions" are like commits. The hash allows us to
   // quickly merge two histories or determine if there's a conflict (a fork in
@@ -1655,11 +1662,18 @@ function foldAction(state, action) {
   // time across different environments, but in this case it's safe for it to
   // produce a different hash for the same history since it will just fall back
   // to a full history merge (the hash is just used as an optimization).
-  state.hash = md5Hash(JSON.stringify([state.hash, action]));
+  //
+  // Note that the state hash isn't actually a hash of the full state, but a
+  // hash that includes the whole action history, which fully determines the
+  // state, excluding differences in the projected time.
+  state.hash = action.hash = md5Hash(JSON.stringify([state.hash, action]));
+
+  state.actions.push(action);
 
   switch (action.type) {
     case 'InitialState':
-      state = JSON.parse(JSON.stringify(action.state));
+      // Clone the initial state out of the action
+      Object.assign(state, JSON.parse(JSON.stringify(action.state)));
       break;
     case 'ListNew':
       state.lists.push({ name: action.name });
