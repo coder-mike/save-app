@@ -318,7 +318,7 @@ function renderList(list) {
   makeEditable(heading, {
     obj: list,
     field: 'name',
-    write: value => foldAction(window.state, { type: 'ListSetName', newName: value })
+    write: value => foldAction(window.state, { type: 'ListSetName', listId: list.id, newName: value })
   });
 
   // Header info section
@@ -443,14 +443,15 @@ function renderItem(item) {
   makeEditable(nameEl, {
     obj: item,
     field: 'name',
-    requiresRender: false
+    requiresRender: false,
+    write: name => foldAction(window.state, { type: 'SetItemName', itemId: item.id, name })
   });
 
-  // Item description
-  if (item.description) {
-    const descriptionEl = nameSectionEl.appendChild(document.createElement('div'));
-    descriptionEl.classList.add('item-description');
-    descriptionEl.innerHTML = convertUrlsToLinks(item.description);
+  // Item note
+  if (item.note) {
+    const noteEl = nameSectionEl.appendChild(document.createElement('div'));
+    noteEl.classList.add('item-note');
+    noteEl.innerHTML = convertUrlsToLinks(item.note);
   }
 
   // Item Saved
@@ -471,16 +472,11 @@ function renderItem(item) {
     obj: item,
     field: 'price',
     readTransform: formatCurrency,
-    writeTransform: v => {
-      const newPrice = parseCurrency(v);
-      const list = itemEl.closest('.list').list;
-      // Excess goes into the kitty
-      if (newPrice < item.saved.value) {
-        list.overflow.value += item.saved.value - newPrice;
-        item.saved.value = newPrice;
-      }
-      return newPrice;
-    }
+    write: v => foldAction(window.state, {
+      type: 'ItemSetPrice',
+      itemId: item.id,
+      price: parseCurrency(v)
+    })
   });
   priceEl.classList.add('currency');
   priceEl.classList.add('price');
@@ -518,10 +514,10 @@ function createItemMenu(item) {
     smiley.setAttribute('width', 16);
     smiley.setAttribute('height', 16);
 
-    // Edit description
-    const editDescription = menu.newItem();
-    editDescription.textContent = `${item.description ? 'Edit' : 'Add'} note`;
-    editDescription.addEventListener('click', editItemDescriptionClick);
+    // Edit note
+    const editNote = menu.newItem();
+    editNote.textContent = `${item.note ? 'Edit' : 'Add'} note`;
+    editNote.addEventListener('click', editItemNoteClick);
 
     // Redistribute
     const redistribute = menu.newItem();
@@ -739,6 +735,8 @@ function project(state, toTime) {
       item.price ??= 0;
       item.saved ??= { value: 0, rate: 0 };
       item.id ??= uuidv4();
+      item.note ??= item.description; // Migrate from old name "description" to new name "note" // TODO: Remove this after a while
+      item.description = item.note; // TODO: Remove this after a while
 
       // Remaining item cost at the time of last commit
       const remainingCost = item.price - item.saved.value;
@@ -794,45 +792,38 @@ function getAllocatedRate(allocated) {
 }
 
 function deleteItemClick(event) {
-  update();
-
   const item = event.target.closest(".item").item;
-  const list = event.target.closest(".list").list;
-  const items = list.items;
-  const index = items.indexOf(item);
-  items.splice(index, 1);
 
-  // Put the value back into the kitty
-  list.overflow.value += item.saved.value;
+  foldAction({ type: 'ItemDelete', itemId: item.id });
 
   finishedUserInteraction();
 }
 
 function redistributeItemClick(event) {
-  update();
 
   const item = event.target.closest(".item").item;
-  const list = event.target.closest(".list").list;
 
-  list.overflow.value += item.saved.value;
-  item.saved.value = 0;
+  foldAction(window.state, {
+    type: 'ItemRedistributeMoney',
+    itemId: item.id
+  });
 
   finishedUserInteraction();
 }
 
-function editItemDescriptionClick(event) {
+function editItemNoteClick(event) {
   update();
 
   const item = event.target.closest(".item").item;
 
   const dialogContentEl = document.createElement('div');
-  dialogContentEl.classList.add('edit-description-dialog');
+  dialogContentEl.classList.add('edit-note-dialog');
 
-  const descriptionInput = dialogContentEl.appendChild(document.createElement('input'));
-  descriptionInput.classList.add('description');
-  descriptionInput.value = item.description ?? '';
+  const noteInput = dialogContentEl.appendChild(document.createElement('input'));
+  noteInput.classList.add('note');
+  noteInput.value = item.note ?? '';
 
-  descriptionInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
+  noteInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
 
   showDialog('Add note for ' + item.name, dialogContentEl, [{
     text: 'Cancel',
@@ -843,11 +834,15 @@ function editItemDescriptionClick(event) {
     action: apply
   }]);
 
-  descriptionInput.focus();
-  descriptionInput.select();
+  noteInput.focus();
+  noteInput.select();
 
   function apply() {
-    item.description = descriptionInput.value;
+    foldAction(window.state, {
+      type: 'ItemSetNote',
+      itemId: item.id,
+      note: noteInput.value
+    });
 
     finishedUserInteraction();
   }
@@ -921,21 +916,13 @@ function purchaseItemClick(event) {
   actualPriceInput.select();
 
   function apply() {
-    update();
-
     const actualPrice = parseCurrency(actualPriceInput.value);
 
-    // Put all the money back into the kitty except which what was paid
-    list.overflow.value += item.saved.value - actualPrice;
-
-    list.purchaseHistory.push({
-      name: item.name,
-      priceEstimate: item.price,
-      price: actualPrice,
-      purchaseDate: serializeDate(Date.now())
-    });
-
-    list.items.splice(list.items.indexOf(item), 1);
+    foldAction(window.state, {
+      type: 'ItemPurchase',
+      itemId: item.id,
+      actualPrice
+    })
 
     finishedUserInteraction();
   }
@@ -978,10 +965,8 @@ function hideDialog() {
 }
 
 function addItemClick(event) {
-  update();
-
   const list = event.target.closest(".list").list;
-  list.items.push({ });
+  foldAction({ type: 'ItemNew', listId: list.id });
 
   finishedUserInteraction();
 
@@ -1216,19 +1201,15 @@ function itemDrop(event) {
 
   event.dataTransfer.dropEffect = 'move';
 
-  update();
-
   const list = event.target.closest('.list').list;
   const targetItem = event.target.item ?? event.target.closest('.item').item;
 
-  const sourceIndex = list.items.indexOf(sourceItem);
-  const targetIndex = list.items.indexOf(targetItem);
-
-  list.items.splice(sourceIndex, 1);
-  list.items.splice(targetIndex, 0, sourceItem);
-
-  sourceItem.index = targetIndex;
-  sourceItem.indexModified = serializeDate(Date.now());
+  foldAction(window.state, {
+    type: 'ItemMove',
+    itemId: sourceItem.id,
+    targetList: list.id,
+    targetIndex: list.items.indexOf(targetItem),
+  });
 
   finishedUserInteraction();
 }
@@ -1415,11 +1396,9 @@ function injectMoneyClick(event) {
   amountInput.select();
 
   function apply() {
-    update();
-
     const amount = parseCurrency(amountInput.value);
 
-    list.overflow.value += amount;
+    foldAction(window.state, { type: 'ListInjectMoney', listId: list.id, amount });
 
     finishedUserInteraction();
   }
@@ -1670,38 +1649,115 @@ function foldAction(state, action) {
 
   state.actions.push(action);
 
+  const findList = id => state.lists.find(l => l.id == id);
+  const findItem = id => {
+    for (const list of state.lists)
+      for (const item of list.items)
+        if (item.id == id) return { list, item };
+  }
+
   switch (action.type) {
-    case 'InitialState':
+    case 'InitialState': {
       // Clone the initial state out of the action
       Object.assign(state, JSON.parse(JSON.stringify(action.state)));
       break;
-    case 'ListNew':
+    }
+    case 'ListNew': {
       state.lists.push({ name: action.name });
       break;
-    case 'ListDelete':
-      const index = lists.findIndex(list => list.id = action.listId);
+    }
+    case 'ListDelete': {
+      const index = state.lists.findIndex(list => list.id = action.listId);
       if (index != -1) state.lists.splice(index, 1);
       break;
-    case 'ListSetName':
+    }
+    case 'ListSetName': {
+      findList(action.listId)?.name = action.newName;
       break;
-    case 'ListInjectMoney':
+    }
+    case 'ListInjectMoney': {
+      findList(action.listId)?.overflow.value += action.amount;
       break;
-    case 'ItemNew':
+    }
+    case 'ItemNew': {
+      findList(action.listId)?.items?.push({ });
       break;
-    case 'ItemReorder':
+    }
+    case 'ItemMove': {
+      const source = findItem(action.itemId);
+      const targetList = findList(action.targetListId);
+      if (!source || !targetList) break;
+
+      const sourceIndex = source.list.items.indexOf(sourceItem);
+      const targetIndex = Math.max(Math.min(action.targetIndex, targetList.length - 1), 0);
+
+      source.list.items.splice(sourceIndex, 1);
+      targetList.items.splice(targetIndex, 0, source.item);
       break;
-    case 'ItemDelete':
+    }
+    case 'ItemDelete': {
+      const found = findItem(action.itemId);
+      if (!found) break;
+      const { item, list } = found;
+
+      const index = list.items.indexOf(item);
+      console.assert(index != -1);
+      list.items.splice(index, 1);
+
+      // Put the value back into the kitty
+      list.overflow.value += item.saved.value;
       break;
-    case 'ItemSetName':
+    }
+    case 'ItemSetName': {
+      findItem(action.itemId)?.item?.name = action.name;
       break;
-    case 'ItemSetNote':
+    }
+    case 'ItemSetPrice': {
+      const found = findItem(action.itemId);
+      if (!found) break;
+      const { item, list } = found;
+
+      item.price = action.price;
+
+      // Excess goes into the kitty
+      if (action.price < item.saved.value) {
+        list.overflow.value += item.saved.value - action.price;
+        item.saved.value = action.price;
+      }
       break;
-    case 'ItemSetPrice':
+    }
+    case 'ItemSetNote': {
+      findItem(action.itemId)?.item?.note = action.note;
+      findItem(action.itemId)?.item?.description = action.note; // TODO: Remove this after a while
       break;
-    case 'ItemPurchase':
+    }
+    case 'ItemPurchase': {
+      const found = findItem(action.itemId);
+      if (!found) break;
+      const { list, item } = found;
+
+      // Put all the money back into the kitty except which what was paid
+      list.overflow.value += item.saved.value - action.actualPrice;
+
+      list.purchaseHistory.push({
+        name: item.name,
+        priceEstimate: item.price,
+        price: action.actualPrice,
+        purchaseDate: action.time
+      });
+
+      list.items.splice(list.items.indexOf(item), 1);
       break;
-    case 'ItemRedistributeMoney':
+    }
+    case 'ItemRedistributeMoney': {
+      const found = findItem(action.itemId);
+      if (!found) break;
+      const { list, item } = found;
+
+      list.overflow.value += item.saved.value;
+      item.saved.value = 0;
       break;
+    }
   }
 
   // Run another projection just to update any side effects of the action. For

@@ -415,9 +415,9 @@ button:focus {
   display: inline-block;
 }
 
-/* ------------------------ Item.Description --------------------- */
+/* ------------------------ Item.Note --------------------- */
 
-.item-description {
+.item-note {
   display: block;
   font-size: 1.0em;
   white-space: nowrap;
@@ -760,7 +760,7 @@ button.menu-button:hover {
   background-color: rgba(0,0,0,0.07);
 }
 
-.edit-description-dialog input.description {
+.edit-note-dialog input.note {
   width: 100%;
 }
 
