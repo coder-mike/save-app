@@ -1483,7 +1483,7 @@ function signInClick() {
     const result = await apiRequest('login', { email, password });
     if (result.success) {
       mode = 'online';
-      window.state = localStorage.getItem('squirrel-away-online-state');
+      window.state = parseState(localStorage.getItem('squirrel-away-online-state'));
       window.state = mergeStates(window.state, result.state);
       window.userInfo = result.userInfo;
       localStorage.setItem('user-info', JSON.stringify(window.userInfo));
