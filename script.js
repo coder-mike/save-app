@@ -46,14 +46,19 @@ window.loadState = async () => {
         break;
       }
       case 'web-local': {
-        window.state = JSON.parse(localStorage.getItem('squirrel-away-state') ?? '{}');
+        const localStorageContent = localStorage.getItem('squirrel-away-state');
+        if (!localStorageContent) {
+          window.state = newState(uuidv4());
+          return;
+        }
+        window.state = JSON.parse(localStorageContent);
         console.log('Loaded state from localStorage');
         break;
       }
       case 'online': {
         const response = await apiRequest('load', { userId: window.userInfo.id })
         if (response.success) {
-          window.state = response.state;
+          window.state =response.state;
           window.userInfo = response.userInfo;
           console.log('Loaded state from server');
         } else {
@@ -66,7 +71,7 @@ window.loadState = async () => {
       }
     }
   } catch {
-    window.state = {};
+    window.state = newState(uuidv4());
   }
 }
 
@@ -78,7 +83,7 @@ window.addEventListener('load', async() => {
   if (window.debugMode) window.state.time = serializeDate(Date.now());
 
   pushUndoPoint();
-  update();
+  updateState();
   render();
 });
 
@@ -131,7 +136,7 @@ function undo() {
   window.state = JSON.parse(state);
   window.currentListIndex = currentListIndex;
 
-  update();
+  updateState();
   render();
   save();
 }
@@ -147,7 +152,7 @@ function redo() {
   window.state = JSON.parse(state);
   window.currentListIndex = currentListIndex;
 
-  update();
+  updateState();
   render();
   save();
 }
@@ -221,7 +226,7 @@ function renderNavigator(state) {
       readyIndicator.classList.add('ready-indicator');
     }
 
-    const allocatedAmount = Math.round(getAllocatedRate(list.allocated) * 365.25 / 12);
+    const allocatedAmount = Math.round(getAllocatedRate(list.budget) * 365.25 / 12);
     if (allocatedAmount) {
       const allocatedEl = itemEl.appendChild(renderCurrency(allocatedAmount, 0));
       allocatedEl.classList.add('allocated');
@@ -255,9 +260,9 @@ function renderTotals(state) {
   let totalSavedValue = 0;
   let totalSavedRate = 0;
   for (const list of state.lists) {
-    totalBudget += getAllocatedRate(list.allocated) * 365.25 / 12;
-    totalSavedValue += list.overflow.value;
-    totalSavedRate += list.overflow.rate;
+    totalBudget += getAllocatedRate(list.budget) * 365.25 / 12;
+    totalSavedValue += list.kitty.value;
+    totalSavedRate += list.kitty.rate;
     for (const item of list.items) {
       totalSavedValue += item.saved.value;
       totalSavedRate += item.saved.rate;
@@ -333,27 +338,27 @@ function renderList(list) {
   const allocatedAmountEl = allocatedEl.appendChild(document.createElement('div'));
   allocatedAmountEl.classList.add('allocated-amount');
   makeEditable(allocatedAmountEl, {
-    obj: list.allocated,
+    obj: list.budget,
     field: 'dollars',
-    writeTransform: parseCurrency
+    write: v => foldAction(window.state, { type: 'ListSetBudget', listId: list.id, budget: { dollars: parseNonNegativeCurrency(v), unit: '/month' } })
   });
 
   // Allocated Unit
   const allocationUnitEl = allocatedEl.appendChild(document.createElement('div'));
   allocationUnitEl.classList.add('allocated-unit');
-  allocationUnitEl.textContent = list.allocated.unit;
+  allocationUnitEl.textContent = list.budget.unit;
 
   // Kitty
-  if (list.overflow.value || list.overflow.rate) {
+  if (list.kitty.value || list.kitty.rate) {
     const overflowEl = infoEl.appendChild(document.createElement('span'));
     overflowEl.classList.add('list-overflow');
-    if (list.overflow.value >= 0) {
-      overflowEl.appendChild(renderAmount(list.overflow));
+    if (list.kitty.value >= 0) {
+      overflowEl.appendChild(renderAmount(list.kitty));
       overflowEl.classList.remove('debt');
     } else {
       overflowEl.appendChild(renderAmount({
-        value: -list.overflow.value,
-        rate: -list.overflow.rate
+        value: -list.kitty.value,
+        rate: -list.kitty.rate
       }));
       overflowEl.classList.add('debt');
     }
@@ -444,7 +449,7 @@ function renderItem(item) {
     obj: item,
     field: 'name',
     requiresRender: false,
-    write: name => foldAction(window.state, { type: 'SetItemName', itemId: item.id, name })
+    write: name => foldAction(window.state, { type: 'ItemSetName', itemId: item.id, name })
   });
 
   // Item note
@@ -475,7 +480,7 @@ function renderItem(item) {
     write: v => foldAction(window.state, {
       type: 'ItemSetPrice',
       itemId: item.id,
-      price: parseCurrency(v)
+      price: parseNonNegativeCurrency(v)
     })
   });
   priceEl.classList.add('currency');
@@ -636,7 +641,7 @@ function formatCurrency(value, decimals = 2) {
 }
 
 function finishedUserInteraction(requiresRender = true) {
-  update();
+  updateState();
   if (requiresRender) render();
   pushUndoPoint();
   save();
@@ -644,15 +649,23 @@ function finishedUserInteraction(requiresRender = true) {
 
 // Updates (projects) the state to the latest projected values and sets a
 // timeout to repeat automatically the next time that the state needs to change
-function update() {
+function updateState() {
+  console.log('Update state');
   const toTime = Date.now();
+
+  // Need at least one list to render
+  if (state.lists.length < 1)
+    foldAction(state, { type: 'ListNew', id: uuidv4(), name: 'Wish list' });
+
+  // To prove to ourselves that we can rebuild the state from just the actions (this can be removed when we have confidence)
+  if (window.state.actions)
+    window.state = rebuildState(window.state.id, window.state.actions);
 
   const { timeOfNextNonlinearity } = project(window.state, toTime);
 
   window.state = state;
   window.nextNonlinearity = timeOfNextNonlinearity;
   window.lastCommitTime = toTime;
-
 
   if (timeOfNextNonlinearity) {
     let timeoutPeriod = timeOfNextNonlinearity - Date.now();
@@ -669,7 +682,7 @@ function update() {
         return;
       }
       console.log('Updating at nonlinearity', formatDate(Date.now()))
-      update(window.state);
+      updateState(window.state);
       render();
     }, timeoutPeriod)
   }
@@ -678,36 +691,32 @@ function update() {
 // Projects the waterfall model to the future time `toTime`. Mutates `state` and
 // returns { timeOfNextNonlinearity }
 function project(state, toTime) {
-  state ??= {};
-  state.time ??= serializeDate(toTime);
-  state.nextNonlinearity ??= null;
-  state.lists ??= [];
-  state.id ??= uuidv4();
+  console.assert(state);
+  console.assert(Array.isArray(state.lists));
 
-  // Need at least one list to render
-  state.lists.length < 1 && state.lists.push({});
+  state.time ??= toTime;
 
   const lastCommitTime = deserializeDate(state.time);
   let timeOfNextNonlinearity = null;
 
   for (const list of state.lists) {
     list.name ??= 'Wish list';
-    list.allocated ??= { dollars: 0, unit: '/month' };
-    list.overflow ??= { value: 0, rate: 0 };
+    list.budget ??= list.allocated ?? { dollars: 0, unit: '/month' };
+    list.kitty ??= list.overflow ?? { value: 0, rate: 0 };
     list.items ??= [];
     list.purchaseHistory ??= [];
     list.id ??= uuidv4();
 
-    const allocatedRate = getAllocatedRate(list.allocated);
+    const allocatedRate = getAllocatedRate(list.budget);
 
     // We essentially iterate the time cursor forwards from the last commit time to the newTime
     let timeCursor = lastCommitTime;
 
     // The amount of money we have left over at `timeCursor`
-    let remainingMoneyToAllocate = list.overflow.value + rateInDollarsPerMs(allocatedRate) * (toTime - lastCommitTime);
+    let remainingMoneyToAllocate = list.kitty.value + rateInDollarsPerMs(allocatedRate) * (toTime - lastCommitTime);
 
     // Rate of change of remainingMoneyToAllocate at `timeCursor`, which
-    // eventually gets attributed to the overflow bucket
+    // eventually gets attributed to the kitty bucket
     let overflowRate = allocatedRate;
 
     // Are we in debt?
@@ -715,7 +724,7 @@ function project(state, toTime) {
     let debtRate = 0;
     if (remainingMoneyToAllocate < 0) {
       // The money isn't available to allocate to further items, so we move it
-      // to the "debt" variable, which we'll put back in the overflow later
+      // to the "debt" variable, which we'll put back in the kitty later
       debt = -remainingMoneyToAllocate;
       debtRate = -overflowRate;
       remainingMoneyToAllocate = 0;
@@ -768,9 +777,9 @@ function project(state, toTime) {
       }
     }
 
-    // If there's still money left over, it goes into the overflow
-    list.overflow.value = remainingMoneyToAllocate - debt;
-    list.overflow.rate = overflowRate - debtRate;
+    // If there's still money left over, it goes into the kitty
+    list.kitty.value = remainingMoneyToAllocate - debt;
+    list.kitty.rate = overflowRate - debtRate;
   }
 
   state.time = serializeDate(toTime);
@@ -781,12 +790,12 @@ function project(state, toTime) {
   return { timeOfNextNonlinearity };
 }
 
-function getAllocatedRate(allocated) {
-  if (allocated.unit === '/month')
-    return allocated.dollars * 12 / 365.25;
+function getAllocatedRate(budget) {
+  if (budget.unit === '/month')
+    return budget.dollars * 12 / 365.25;
   else
-  if (allocated.unit === '/day')
-    return allocated.dollars;
+  if (budget.unit === '/day')
+    return budget.dollars;
   else
     throw new Error('Unknown unit')
 }
@@ -794,7 +803,7 @@ function getAllocatedRate(allocated) {
 function deleteItemClick(event) {
   const item = event.target.closest(".item").item;
 
-  foldAction({ type: 'ItemDelete', itemId: item.id });
+  foldAction(window.state, { type: 'ItemDelete', itemId: item.id });
 
   finishedUserInteraction();
 }
@@ -812,7 +821,7 @@ function redistributeItemClick(event) {
 }
 
 function editItemNoteClick(event) {
-  update();
+  updateState();
 
   const item = event.target.closest(".item").item;
 
@@ -851,7 +860,7 @@ function editItemNoteClick(event) {
 function purchaseItemClick(event) {
   hideMenu();
 
-  update();
+  updateState();
 
   const item = event.target.closest(".item").item;
   const list = event.target.closest(".list").list;
@@ -886,7 +895,7 @@ function purchaseItemClick(event) {
 
     actualPriceInput.classList.remove('invalid');
 
-    const actualPrice = parseCurrency(actualPriceInput.value);
+    const actualPrice = parseNonNegativeCurrency(actualPriceInput.value);
 
     const toAddToKitty = item.saved.value - actualPrice;
     if (toAddToKitty > 0.01) {
@@ -916,7 +925,7 @@ function purchaseItemClick(event) {
   actualPriceInput.select();
 
   function apply() {
-    const actualPrice = parseCurrency(actualPriceInput.value);
+    const actualPrice = parseNonNegativeCurrency(actualPriceInput.value);
 
     foldAction(window.state, {
       type: 'ItemPurchase',
@@ -966,7 +975,7 @@ function hideDialog() {
 
 function addItemClick(event) {
   const list = event.target.closest(".list").list;
-  foldAction({ type: 'ItemNew', listId: list.id });
+  foldAction(window.state, { type: 'ItemNew', listId: list.id });
 
   finishedUserInteraction();
 
@@ -1055,7 +1064,7 @@ function makeEditable(el, { obj, field, readTransform, writeTransform, read, wri
 
   function blur() {
     if (el.textContent !== read()) {
-      update();
+      updateState();
       write(el.textContent);
       endEdit(true, requiresRender);
     } else {
@@ -1081,11 +1090,11 @@ function navListItemClick(event) {
   const index = window.state.lists.indexOf(list);
   window.currentListIndex = index;
 
-  finishedUserInteraction();
+  render();
 }
 
 function beginEdit(el) {
-  update();
+  updateState();
 
   window.isEditing = true;
   window.elementBeingEdited = el;
@@ -1127,8 +1136,12 @@ function newListClick() {
   selectAllInContentEditable(listHeading);
 }
 
-function parseCurrency(value) {
+function parseNonNegativeCurrency(value) {
   return Math.max(parseFloat(value) || 0, 0)
+}
+
+function parseCurrency(value) {
+  return parseFloat(value) || 0;
 }
 
 function createPlusSvg() {
@@ -1358,7 +1371,7 @@ function deleteListClick(event) {
 function injectMoneyClick(event) {
   hideMenu();
 
-  update();
+  updateState();
 
   const list = event.target.closest('.list').list;
 
@@ -1608,7 +1621,7 @@ function restoreScrollPosition() {
 
 function selectAllInContentEditable(el) {
   el.focus();
-  document.execCommand('selectAll', false, null);
+  //document.execCommand('selectAll', false, null);
 }
 
 // https://stackoverflow.com/a/2117523
@@ -1626,12 +1639,45 @@ function foldAction(state, action) {
 
   project(state, time);
 
-  // For backwards compatibility with states that weren't created using an actions list
+  // For backwards compatibility with states that weren't created using an
+  // actions list, we need to set up an actions list that is equivalent to the
+  // existing state.
+  // TODO: Remove this at some point
   if (!state.actions) {
-    const initialState = { ...state };
-    state.actions = [];
-    state.hash = 'd41d8cd98f00b204e9800998ecf8427e'; // Empty hash
-    foldAction(state, { type: 'InitialState', state: initialState });
+    Object.assign(state, emptyState());
+    foldAction(state, {
+      type: 'MigrateState',
+      id: state.id,
+      time: state.time,
+      state: {
+        id: state.id,
+        lists: state.lists.map(list => ({
+          id: list.id,
+          name: list.name,
+          budget: {
+            dollars: list.allocated.dollars,
+            unit: list.allocated.unit
+          },
+          kitty: {
+            value: list.overflow.value,
+            rate: list.overflow.rate
+          },
+          purchaseHistory: list.purchaseHistory.map(p => ({
+            id: p.id,
+            name: p.name,
+            priceEstimate: p.priceEstimate,
+            price: p.price,
+            purchaseDate: p.purchaseDate
+          })),
+          items: list.items.map(i => ({
+            id: i.name,
+            price: i.price,
+            saved: { value: i.value, rate: i.rate },
+            note: i.note ?? i.description
+          }))
+        }))
+      }
+    });
   }
 
   // Like a git hash, if "actions" are like commits. The hash allows us to
@@ -1657,13 +1703,20 @@ function foldAction(state, action) {
   }
 
   switch (action.type) {
-    case 'InitialState': {
-      // Clone the initial state out of the action
-      Object.assign(state, JSON.parse(JSON.stringify(action.state)));
+    case 'New': {
+      state.id = action.id;
+      state.time = action.time;
+      state.lists = [];
+      break;
+    }
+    case 'MigrateState': {
+      // Migrate from a pre-event-sourced state structure
+      Object.assign(state, deepClone(action.state));
+      state.time = action.time;
       break;
     }
     case 'ListNew': {
-      state.lists.push({ name: action.name });
+      state.lists.push({ id: action.id, name: action.name });
       break;
     }
     case 'ListDelete': {
@@ -1672,15 +1725,22 @@ function foldAction(state, action) {
       break;
     }
     case 'ListSetName': {
-      findList(action.listId)?.name = action.newName;
+      const list = findList(action.listId);
+      if (list) list.name = action.newName;
+      break;
+    }
+    case 'ListSetBudget': {
+      const list = findList(action.listId);
+      if (list) list.budget = action.budget;
       break;
     }
     case 'ListInjectMoney': {
-      findList(action.listId)?.overflow.value += action.amount;
+      const list = findList(action.listId);
+      if (list) list.kitty.value += action.amount;
       break;
     }
     case 'ItemNew': {
-      findList(action.listId)?.items?.push({ });
+      findList(action.listId)?.items?.push({ id: action.id });
       break;
     }
     case 'ItemMove': {
@@ -1705,11 +1765,12 @@ function foldAction(state, action) {
       list.items.splice(index, 1);
 
       // Put the value back into the kitty
-      list.overflow.value += item.saved.value;
+      list.kitty.value += item.saved.value;
       break;
     }
     case 'ItemSetName': {
-      findItem(action.itemId)?.item?.name = action.name;
+      const item = findItem(action.itemId)?.item;
+      if (item) item.name = action.name;
       break;
     }
     case 'ItemSetPrice': {
@@ -1721,14 +1782,15 @@ function foldAction(state, action) {
 
       // Excess goes into the kitty
       if (action.price < item.saved.value) {
-        list.overflow.value += item.saved.value - action.price;
+        list.kitty.value += item.saved.value - action.price;
         item.saved.value = action.price;
       }
       break;
     }
     case 'ItemSetNote': {
-      findItem(action.itemId)?.item?.note = action.note;
-      findItem(action.itemId)?.item?.description = action.note; // TODO: Remove this after a while
+      const item = findItem(action.itemId)?.item;
+      if (item) item.note = action.note;
+      if (item) item.description = action.note; // TODO: Remove this after a while
       break;
     }
     case 'ItemPurchase': {
@@ -1737,9 +1799,10 @@ function foldAction(state, action) {
       const { list, item } = found;
 
       // Put all the money back into the kitty except which what was paid
-      list.overflow.value += item.saved.value - action.actualPrice;
+      list.kitty.value += item.saved.value - action.actualPrice;
 
       list.purchaseHistory.push({
+        id: item.id,
         name: item.name,
         priceEstimate: item.price,
         price: action.actualPrice,
@@ -1754,7 +1817,7 @@ function foldAction(state, action) {
       if (!found) break;
       const { list, item } = found;
 
-      list.overflow.value += item.saved.value;
+      list.kitty.value += item.saved.value;
       item.saved.value = 0;
       break;
     }
@@ -1762,9 +1825,31 @@ function foldAction(state, action) {
 
   // Run another projection just to update any side effects of the action. For
   // example, redistributing newly-available cash
-  return project(state, time);
+  project(state, time);
+
+  return state;
 }
 
 // https://stackoverflow.com/a/33486055
 function md5Hash(d){var r = M(V(Y(X(d),8*d.length)));return r.toLowerCase()};function M(d){for(var _,m="0123456789ABCDEF",f="",r=0;r<d.length;r++)_=d.charCodeAt(r),f+=m.charAt(_>>>4&15)+m.charAt(15&_);return f}function X(d){for(var _=Array(d.length>>2),m=0;m<_.length;m++)_[m]=0;for(m=0;m<8*d.length;m+=8)_[m>>5]|=(255&d.charCodeAt(m/8))<<m%32;return _}function V(d){for(var _="",m=0;m<32*d.length;m+=8)_+=String.fromCharCode(d[m>>5]>>>m%32&255);return _}function Y(d,_){d[_>>5]|=128<<_%32,d[14+(_+64>>>9<<4)]=_;for(var m=1732584193,f=-271733879,r=-1732584194,i=271733878,n=0;n<d.length;n+=16){var h=m,t=f,g=r,e=i;f=md5_ii(f=md5_ii(f=md5_ii(f=md5_ii(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_ff(f=md5_ff(f=md5_ff(f=md5_ff(f,r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+0],7,-680876936),f,r,d[n+1],12,-389564586),m,f,d[n+2],17,606105819),i,m,d[n+3],22,-1044525330),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+4],7,-176418897),f,r,d[n+5],12,1200080426),m,f,d[n+6],17,-1473231341),i,m,d[n+7],22,-45705983),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+8],7,1770035416),f,r,d[n+9],12,-1958414417),m,f,d[n+10],17,-42063),i,m,d[n+11],22,-1990404162),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+12],7,1804603682),f,r,d[n+13],12,-40341101),m,f,d[n+14],17,-1502002290),i,m,d[n+15],22,1236535329),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+1],5,-165796510),f,r,d[n+6],9,-1069501632),m,f,d[n+11],14,643717713),i,m,d[n+0],20,-373897302),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+5],5,-701558691),f,r,d[n+10],9,38016083),m,f,d[n+15],14,-660478335),i,m,d[n+4],20,-405537848),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+9],5,568446438),f,r,d[n+14],9,-1019803690),m,f,d[n+3],14,-187363961),i,m,d[n+8],20,1163531501),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+13],5,-1444681467),f,r,d[n+2],9,-51403784),m,f,d[n+7],14,1735328473),i,m,d[n+12],20,-1926607734),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+5],4,-378558),f,r,d[n+8],11,-2022574463),m,f,d[n+11],16,1839030562),i,m,d[n+14],23,-35309556),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+1],4,-1530992060),f,r,d[n+4],11,1272893353),m,f,d[n+7],16,-155497632),i,m,d[n+10],23,-1094730640),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+13],4,681279174),f,r,d[n+0],11,-358537222),m,f,d[n+3],16,-722521979),i,m,d[n+6],23,76029189),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+9],4,-640364487),f,r,d[n+12],11,-421815835),m,f,d[n+15],16,530742520),i,m,d[n+2],23,-995338651),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+0],6,-198630844),f,r,d[n+7],10,1126891415),m,f,d[n+14],15,-1416354905),i,m,d[n+5],21,-57434055),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+12],6,1700485571),f,r,d[n+3],10,-1894986606),m,f,d[n+10],15,-1051523),i,m,d[n+1],21,-2054922799),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+8],6,1873313359),f,r,d[n+15],10,-30611744),m,f,d[n+6],15,-1560198380),i,m,d[n+13],21,1309151649),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+4],6,-145523070),f,r,d[n+11],10,-1120210379),m,f,d[n+2],15,718787259),i,m,d[n+9],21,-343485551),m=safe_add(m,h),f=safe_add(f,t),r=safe_add(r,g),i=safe_add(i,e)}return Array(m,f,r,i)}function md5_cmn(d,_,m,f,r,i){return safe_add(bit_rol(safe_add(safe_add(_,d),safe_add(f,i)),r),m)}function md5_ff(d,_,m,f,r,i,n){return md5_cmn(_&m|~_&f,d,_,r,i,n)}function md5_gg(d,_,m,f,r,i,n){return md5_cmn(_&f|m&~f,d,_,r,i,n)}function md5_hh(d,_,m,f,r,i,n){return md5_cmn(_^m^f,d,_,r,i,n)}function md5_ii(d,_,m,f,r,i,n){return md5_cmn(m^(_|~f),d,_,r,i,n)}function safe_add(d,_){var m=(65535&d)+(65535&_);return(d>>16)+(_>>16)+(m>>16)<<16|65535&m}function bit_rol(d,_){return d<<_|d>>>32-_}
 
+function rebuildState(id, actions) {
+
+  return actions.reduce(foldAction, { ...emptyState(), id });
+}
+
+function emptyState() {
+  return {
+    actions: [],
+    lists: [],
+    hash: md5Hash('')
+  }
+}
+
+function newState(id) {
+  return foldAction(emptyState(), { type: 'New', id });
+}
+
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
