@@ -26,11 +26,7 @@ window.saveState = async () => {
       break;
     }
     case 'online': {
-      await apiRequest('save', {
-        userId: window.userInfo.id,
-        state: window.state
-      })
-      console.log('Saved to server');
+      await syncWithServer();
       break;
     }
   }
@@ -41,7 +37,7 @@ window.loadState = async () => {
     switch (mode) {
       case 'electron-local': {
         const fs = require('fs');
-        window.state = JSON.parse(fs.readFileSync('state.json'));
+        window.state = upgradeStateFormat(JSON.parse(fs.readFileSync('state.json')));
         console.log('Loaded state from file');
         break;
       }
@@ -51,41 +47,35 @@ window.loadState = async () => {
           window.state = newState(uuidv4());
           return;
         }
-        window.state = JSON.parse(localStorageContent);
+        window.state = upgradeStateFormat(JSON.parse(localStorageContent));
         console.log('Loaded state from localStorage');
         break;
       }
       case 'online': {
-        const response = await apiRequest('load', { userId: window.userInfo.id })
-        if (response.success) {
-          window.state =response.state;
-          window.userInfo = response.userInfo;
-          console.log('Loaded state from server');
-        } else {
-          console.log('Failed to load state from server');
-          delete window.userInfo;
-          detectMode();
-          await window.loadState();
-        }
+        await syncWithServer();
         break;
       }
     }
-  } catch {
+  } catch (e) {
+    console.error(e);
     window.state = newState(uuidv4());
   }
+  upgradeStateFormat();
 }
 
 window.addEventListener('load', async() => {
-  await window.loadState();
   window.undoHistory = [];
   window.undoIndex = -1; // Points to the current state
   window.debugMode = false;
   if (window.debugMode) window.state.time = serializeDate(Date.now());
 
+  await window.loadState();
   pushUndoPoint();
-  updateState();
-  render();
+
+  occasionallyRebuild();
 });
+
+window.addEventListener('focus', syncWithServer);
 
 document.addEventListener('keydown', documentKeyDown);
 document.addEventListener('mousedown', documentMouseDown);
@@ -95,12 +85,6 @@ function render() {
   window.currentListIndex ??= 0;
   window.currentListIndex = Math.max(window.currentListIndex, 0);
   window.currentListIndex = Math.min(window.currentListIndex, window.state.lists.length - 1);
-
-  // To prove to ourselves that we can rebuild the state from just the actions (this can be removed when we have confidence)
-  // TODO: Remove this at some point
-  if (window.state.actions) {
-    //window.state = rebuildStateFromActions(window.state.id, window.state.actions);
-  }
 
   saveScrollPosition();
   document.body.replaceChildren(renderPage(window.state))
@@ -143,8 +127,8 @@ function undo() {
   window.currentListIndex = currentListIndex;
 
   updateState();
-  render();
   save();
+  render();
 }
 
 function redo() {
@@ -159,8 +143,8 @@ function redo() {
   window.currentListIndex = currentListIndex;
 
   updateState();
-  render();
   save();
+  render();
 }
 
 function renderPage(state) {
@@ -642,9 +626,9 @@ function formatCurrency(value, decimals = 2) {
 
 function finishedUserInteraction(requiresRender = true) {
   updateState();
-  if (requiresRender) render();
   pushUndoPoint();
   save();
+  if (requiresRender) render();
 }
 
 // Updates (projects) the state to the latest projected values and sets a
@@ -673,7 +657,7 @@ function updateState() {
     if (timeoutPeriod < 1)
       timeoutPeriod = 1;
     window.nextNonLinearityTimer = setTimeout(() => {
-      if (window.isEditing) {
+      if (window.isEditing || window.dialogBackgroundEl) {
         console.log('Not updating at nonlinearity because user is busy editing')
         return;
       }
@@ -1498,7 +1482,8 @@ function signInClick() {
     const result = await apiRequest('login', { email, password });
     if (result.success) {
       mode = 'online';
-      window.state = result.state;
+      window.state = localStorage.getItem('squirrel-away-online-state');
+      window.state = mergeStates(window.state, result.state);
       window.userInfo = result.userInfo;
       localStorage.setItem('user-info', JSON.stringify(window.userInfo));
 
@@ -1571,13 +1556,14 @@ function signUpClick() {
       mode = 'online';
       window.state = result.state;
       window.userInfo = result.userInfo;
+      localStorage.setItem('squirrel-away-online-state', JSON.stringify(window.state));
       localStorage.setItem('user-info', JSON.stringify(window.userInfo));
       // The next time the user logs out, they won't see the state, so it's hopefully less confusing
       localStorage.removeItem('state');
 
       finishedUserInteraction();
     } else {
-      errorNotice.textContent = 'Failed to log in: ' + (result.reason ?? '')
+      errorNotice.textContent = 'Failed to sign up: ' + (result.reason ?? '')
     }
   }
 }
@@ -1595,6 +1581,7 @@ function detectMode() {
 async function signOutClick() {
   delete window.userInfo;
   localStorage && localStorage.removeItem('user-info');
+  localStorage && localStorage.removeItem('squirrel-away-online-state');
   detectMode();
   await loadState();
   finishedUserInteraction();
@@ -1633,47 +1620,6 @@ function foldAction(state, action) {
 
   project(state, time);
 
-  // For backwards compatibility with states that weren't created using an
-  // actions list, we need to set up an actions list that is equivalent to the
-  // existing state.
-  // TODO: Remove this at some point
-  if (!state.actions) {
-    Object.assign(state, emptyState());
-    foldAction(state, {
-      type: 'MigrateState',
-      id: state.id,
-      time: state.time,
-      state: {
-        id: state.id,
-        lists: state.lists.map(list => ({
-          id: list.id,
-          name: list.name,
-          budget: {
-            dollars: list.allocated.dollars,
-            unit: list.allocated.unit
-          },
-          kitty: {
-            value: list.overflow.value,
-            rate: list.overflow.rate
-          },
-          purchaseHistory: list.purchaseHistory.map(p => ({
-            id: p.id,
-            name: p.name,
-            priceEstimate: p.priceEstimate,
-            price: p.price,
-            purchaseDate: p.purchaseDate
-          })),
-          items: list.items.map(i => ({
-            id: i.name,
-            price: i.price,
-            saved: { value: i.value, rate: i.rate },
-            note: i.note ?? i.description
-          }))
-        }))
-      }
-    });
-  }
-
   // Like a git hash, if "actions" are like commits. The hash allows us to
   // quickly merge two histories or determine if there's a conflict (a fork in
   // the history). Note that "JSON.stringify" here is technically not correct
@@ -1685,7 +1631,8 @@ function foldAction(state, action) {
   // Note that the state hash isn't actually a hash of the full state, but a
   // hash that includes the whole action history, which fully determines the
   // state, excluding differences in the projected time.
-  state.hash = action.hash = md5Hash(JSON.stringify([state.hash, action]));
+  const { hash, ...contentToHash } = action;
+  state.hash = action.hash = md5Hash(JSON.stringify([state.hash, contentToHash]));
 
   state.actions.push(action);
 
@@ -1848,4 +1795,166 @@ function newState(id) {
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+
+function occasionallyRebuild() {
+  setInterval(() => {
+    // This is to prove to ourselves that the "actions" property of the state
+    // contains all the necessary information to rebuild the latest state of all
+    // the lists. I want this here because it'll cause bugs to surface earlier
+    // rather than later if there's a problem building state from the actions.
+    if (!window.dialogBackgroundEl && !window.isEditing && window.state.actions) {
+      console.log('Rebuilding the list state from the actions')
+      window.state = rebuildStateFromActions(window.state.id, window.state.actions);
+      render();
+    }
+  }, 60_000);
+}
+
+function mergeStates(...states) {
+  if (states.length < 2) return states[0];
+
+  const [state1, state2, ...rest] = states;
+  if (rest.length > 0) return mergeStates(mergeStates(state1, state2), ...rest);
+
+  if (!state2) return state1;
+  if (!state1) return state2;
+
+  // We merge based on the actions, so if either don't have actions then we don't have anything to merge on
+  upgradeStateFormat(state1);
+  upgradeStateFormat(state2);
+
+  // Special case: if the hash is the same, the content is the same
+  if (state1.hash === state2.hash) return state1;
+
+  // Special case: if one state can do a fast-forward to reach the other state
+  if (state1.actions.some(a => a.hash === state2.hash)) return state1;
+  if (state2.actions.some(a => a.hash === state1.hash)) return state2;
+
+  const itLeft = state1.actions[Symbol.iterator]();
+  const itRight = state2.actions[Symbol.iterator]();
+
+  let left = itLeft.next();
+  let right = itRight.next();
+  let newState = emptyState();
+
+  while (!left.done || !right.done) {
+    let pickAction;
+    if (!left.done && !right.done && left.value.id === right.value.id) {
+      // Consume both, since they're the same action (the most common case)
+      pickAction = left.value;
+      left = itLeft.next();
+      right = itRight.next();
+    } else if (!left.done && (right.done || left.value.time <= right.value.time)) {
+      // The left "wins" because it's earlier (or we've run out right actions)
+      pickAction = left.value;
+      left = itLeft.next();
+    } else {
+      // The right "wins" because it has an earlier time than the left (or the left has run out of actions)
+      pickAction = right.value;
+      right = itRight.next();
+    }
+    newState = foldAction(newState, pickAction);
+  }
+
+  return newState;
+}
+
+// TODO: Remove this at some point
+function upgradeStateFormat(state) {
+  if (!state) return state;
+  // For backwards compatibility with states that weren't created using an
+  // actions list, we need to set up an actions list that is equivalent to the
+  // existing state.
+  if (!state.actions) {
+    const id = state.id;
+    const time = state.time;
+    const snapshot = {
+      id: state.id,
+      lists: state.lists.map(list => ({
+        id: list.id,
+        name: list.name,
+        budget: {
+          dollars: list.allocated.dollars,
+          unit: list.allocated.unit
+        },
+        kitty: {
+          value: list.overflow.value,
+          rate: list.overflow.rate
+        },
+        purchaseHistory: list.purchaseHistory.map(p => ({
+          id: p.id,
+          name: p.name,
+          priceEstimate: p.priceEstimate,
+          price: p.price,
+          purchaseDate: p.purchaseDate
+        })),
+        items: list.items.map(i => ({
+          id: i.name,
+          price: i.price,
+          saved: { value: i.saved.value, rate: i.saved.rate },
+          note: i.note ?? i.description
+        }))
+      }))
+    };
+    Object.assign(state, emptyState());
+    foldAction(state, {
+      type: 'MigrateState',
+      id,
+      time,
+      state: snapshot
+    });
+  }
+  return state;
+}
+
+async function syncWithServer() {
+  console.log('Synchronizing with server');
+  let state = window.state;
+
+  // Synchronize with local storage first
+  const local = parseState(localStorage.getItem('squirrel-away-online-state'));
+  state = mergeStates(state, local);
+
+  // Try synchronize with the server if it's available
+  try {
+    const remote = upgradeStateFormat(await loadRemoteState());
+    state = mergeStates(state, remote);
+    if (!sameState(state, remote)) {
+      console.log('Pushing state to server');
+      await saveRemoteState(state);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+
+  if (!sameState(state, local)) {
+    console.log('Pushing state to local storage');
+    localStorage.setItem('squirrel-away-online-state', JSON.stringify(state));
+  }
+
+  if (!sameState(state, window.state)) {
+    console.log('Loading changes');
+    window.state = state;
+    window.lastCommitTime = deserializeDate(state.time);
+    render();
+  }
+}
+
+async function loadRemoteState() {
+  const response = await apiRequest('load', { userId: window.userInfo.id });
+  return response.success ? response.state : undefined;
+}
+
+
+async function saveRemoteState(state) {
+  await apiRequest('save', { userId: window.userInfo.id, state });
+}
+
+function parseState(json) {
+  return json && upgradeStateFormat(JSON.parse(json));
+}
+
+function sameState(state1, state2) {
+  return state1?.hash === state2?.hash;
 }
