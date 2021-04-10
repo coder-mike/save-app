@@ -9,7 +9,6 @@ A simple app to help to limit spending. You create a list of things you want, an
 ## Run
 
   - Clone repo
-  - `npm run electron` (uses the file system for storage)
   - OR `npm run web-server` and open `localhost:8080` in a browser (uses web localStorage for storage)
   - OR host the files on a PHP server with `config.php` configured with the local database connection
 
