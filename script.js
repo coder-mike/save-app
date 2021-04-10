@@ -305,11 +305,17 @@ function renderList(list) {
   listEl.list = list;
   listEl.classList.add('list');
 
+  const stickyEl = listEl.appendChild(document.createElement('div'));
+  stickyEl.classList.add('list-sticky-area');
+
+  // Squirrel graphic
+  stickyEl.appendChild(renderSquirrelGraphic());
+
   // Mobile top menu
-  listEl.appendChild(renderMobileTopMenuBar());
+  stickyEl.appendChild(renderMobileTopMenuBar());
 
   // List header
-  const listHeaderEl = listEl.appendChild(document.createElement('div'));
+  const listHeaderEl = stickyEl.appendChild(document.createElement('div'));
   listHeaderEl.classList.add('list-header');
 
   // Header name section
@@ -2015,6 +2021,24 @@ function createMobileNavMenuButtonSvg() {
     line.setAttribute('y2', i * pitch);
     line.setAttribute('stroke-width', thickness);
   }
+
+  return svg;
+}
+
+function renderSquirrelGraphic() {
+  const internalX = 0;
+  const internalY = 2;
+  const internalSize = 100;
+
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.classList.add('squirrel-graphic');
+  svg.setAttribute('viewBox', `${internalX} ${internalY} ${internalSize} ${internalSize}`);
+  svg.setAttribute('width', 50);
+  svg.setAttribute('height', 50);
+  svg.style.display = 'block';
+
+  const path = svg.appendChild(document.createElementNS(svgNS, 'path'));
+  path.setAttribute('d', 'm 57.743013,29.127309 c -12.93795,0.179207 -22.347307,11.920556 -21.895807,24.86346 0.453995,13.014395 12.723204,19.422555 11.922584,33.151853 -0.252254,4.325777 -2.256285,9.132424 -8.96533,14.164208 17.743524,-2.957243 17.743524,-20.700777 17.743524,-35.487045 0,-18.265493 16.265304,-18.27202 22.707897,-8.660942 C 82.21312,36.458046 68.526468,28.977945 57.743013,29.127309 Z M 15.583664,51.653267 c -0.04923,-0.0018 -0.09976,0.0016 -0.151328,0.0098 -1.436303,0.228226 -1.15389,2.04243 -1.331342,4.755288 a 9.8298778,9.8298778 0 0 0 -2.870038,-0.428571 9.8298778,9.8298778 0 0 0 -9.829403,9.829983 9.8298778,9.8298778 0 0 0 9.829403,9.82998 9.8298778,9.8298778 0 0 0 9.829981,-9.82998 9.8298778,9.8298778 0 0 0 -2.327682,-6.351744 c -1.192858,-3.122049 -1.645077,-7.758565 -3.149591,-7.81477 z M 9.2169048,62.582976 a 1.9162314,1.9162314 0 0 1 1.9164392,1.916439 1.9162314,1.9162314 0 0 1 -1.9164392,1.916439 1.9162314,1.9162314 0 0 1 -1.9164393,-1.916439 1.9162314,1.9162314 0 0 1 1.9164393,-1.916439 z m 21.3494092,6.616278 a 16.264895,16.264895 0 0 0 -16.264896,16.264897 16.264895,16.264895 0 0 0 9.497867,14.789739 1.4114845,1.4114845 0 0 0 -0.01155,0.18136 1.4114845,1.4114845 0 0 0 1.41105,1.41162 1.4114845,1.4114845 0 0 0 1.196185,-0.66191 16.264895,16.264895 0 0 0 4.171345,0.54409 A 16.264895,16.264895 0 0 0 46.831211,85.464151 16.264895,16.264895 0 0 0 30.566314,69.199254 Z M 5.3164492,76.690579 A 3.9153737,3.9153737 0 0 0 1.401553,80.606053 3.9153737,3.9153737 0 0 0 5.3164492,84.521526 3.9153737,3.9153737 0 0 0 9.231922,80.606053 3.9153737,3.9153737 0 0 0 5.3164492,76.690579 Z')
 
   return svg;
 }

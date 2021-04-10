@@ -2,6 +2,7 @@
 
 :root {
   --border-radius: 4px;
+  --mobile-top-menu-height: 35px;
 }
 
 html {
@@ -13,6 +14,16 @@ html {
 * {
   box-sizing: border-box;
   cursor: inherit;
+}
+
+/* Version */
+.list::after {
+  content: '1.0.0';
+  font-size: 0.7em;
+  position: fixed;
+  right: 25px;
+  bottom: 10px;
+  opacity: 0.2;
 }
 
 ul, ol, li {
@@ -116,7 +127,7 @@ button:focus {
   background-color: #444;
   padding: 3px;
   text-align: left;
-  height: 32px;
+  height: var(--mobile-top-menu-height);
   z-index: 1;
 }
 
@@ -132,7 +143,7 @@ button:focus {
   stroke: black;
 }
 
-@media screen and (max-width: 900px) {
+@media all and (max-width: 900px) {
   /* The background behind the menu when it's showing */
   .mobile-nav-showing #mobile-nav-background {
     display: block;
@@ -296,6 +307,7 @@ button:focus {
 /* ------------------------ List --------------------- */
 
 .list {
+  position: relative;
   overflow-x: hidden;
   overflow-y: auto;
   text-align: center;
@@ -303,14 +315,18 @@ button:focus {
   flex: 1 0 0;
 }
 
-.list-header {
-  text-align: left;
-  display: flex;
-  align-items: center;
+.list-sticky-area {
   position: sticky;
   top: 0px;
   background-color: white;
   z-index: 1;
+  margin-bottom: -10px;
+}
+
+.list-header {
+  text-align: left;
+  display: flex;
+  align-items: center;
 }
 
 .list-header .list-name{
@@ -390,7 +406,7 @@ button:focus {
 .list .purchase-history .history-item:last-child::after {
   content: '';
   display: block;
-  margin: 10px 10px 0px 10px;
+  margin: 0px 10px 0px 10px;
   border-bottom: 1px solid rgba(0,0,0,0.1);
 }
 
@@ -398,7 +414,7 @@ button:focus {
   padding: 0 50px 10px 50px;
 }
 
-@media screen and (max-width: 900px) {
+@media all and (max-width: 900px) {
   .list .items-list {
     padding: 0 10px 10px 10px;
   }
@@ -419,7 +435,32 @@ button:focus {
   }
 
   .list-header {
-    top: 32px;
+    top: var(--mobile-top-menu-height);
+    margin-bottom: -7px;
+  }
+}
+
+/* ------------------------ Squirrel Graphic --------------------- */
+
+svg.squirrel-graphic {
+  position: absolute;
+  bottom: 0;
+  margin: -10px 0 0 50px;
+  right: 160px;
+  width: 140px;
+  height: 140px;
+  fill: #00a364;
+  opacity: 0.1;
+  /* z-index: 2; */
+}
+
+@media all and (max-width: 900px) {
+  svg.squirrel-graphic {
+    margin: 13px 0 0 10px;
+    right: 170px;
+    width: 80px;
+    height: 80px;
+    fill: #444;
   }
 }
 
@@ -472,7 +513,7 @@ button:focus {
   width: 350px;
 }
 
-@media screen and (max-width: 900px) {
+@media all and (max-width: 900px) {
   .item-inner {
     padding: 10px;
     height: 60px;
@@ -525,7 +566,7 @@ button:focus {
   display: inline-block;
 }
 
-@media screen and (max-width: 900px) {
+@media all and (max-width: 900px) {
   .name-section {
     max-width: none;
   }
@@ -580,7 +621,7 @@ button:focus {
   opacity: 0.5;
 }
 
-@media screen and (max-width: 900px) {
+@media all and (max-width: 900px) {
   .item .saved {
     display: none;
   }
@@ -598,7 +639,7 @@ button:focus {
   padding-right: 10px;
 }
 
-@media screen and (max-width: 900px) {
+@media all and (max-width: 900px) {
   .item .info-section {
     flex: 0 0 auto;
   }
@@ -806,7 +847,7 @@ input.invalid {
   /* fill: black; */
 }
 
-@media screen and (max-width: 900px) {
+@media all and (max-width: 900px) {
   .history-item .item-inner  {
     padding-left: 10px;
     padding-right: 10px;
