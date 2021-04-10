@@ -46,14 +46,19 @@ window.loadState = async () => {
         break;
       }
       case 'web-local': {
-        window.state = JSON.parse(localStorage.getItem('squirrel-away-state') ?? '{}');
+        const localStorageContent = localStorage.getItem('squirrel-away-state');
+        if (!localStorageContent) {
+          window.state = newState(uuidv4());
+          return;
+        }
+        window.state = JSON.parse(localStorageContent);
         console.log('Loaded state from localStorage');
         break;
       }
       case 'online': {
         const response = await apiRequest('load', { userId: window.userInfo.id })
         if (response.success) {
-          window.state = response.state;
+          window.state =response.state;
           window.userInfo = response.userInfo;
           console.log('Loaded state from server');
         } else {
@@ -66,7 +71,7 @@ window.loadState = async () => {
       }
     }
   } catch {
-    window.state = {};
+    window.state = newState(uuidv4());
   }
 }
 
@@ -78,7 +83,7 @@ window.addEventListener('load', async() => {
   if (window.debugMode) window.state.time = serializeDate(Date.now());
 
   pushUndoPoint();
-  update();
+  updateState();
   render();
 });
 
@@ -87,6 +92,16 @@ document.addEventListener('mousedown', documentMouseDown);
 window.addEventListener('blur', windowBlurEvent);
 
 function render() {
+  window.currentListIndex ??= 0;
+  window.currentListIndex = Math.max(window.currentListIndex, 0);
+  window.currentListIndex = Math.min(window.currentListIndex, window.state.lists.length - 1);
+
+  // To prove to ourselves that we can rebuild the state from just the actions (this can be removed when we have confidence)
+  // TODO: Remove this at some point
+  if (window.state.actions) {
+    //window.state = rebuildStateFromActions(window.state.id, window.state.actions);
+  }
+
   saveScrollPosition();
   document.body.replaceChildren(renderPage(window.state))
   restoreScrollPosition();
@@ -110,7 +125,10 @@ function pushUndoPoint() {
   // The undo history needs to contain a *copy* of all the information in the
   // current state. It's easiest to just serialize it and then we can
   // deserialize IFF we need to undo
-  window.undoHistory[window.undoIndex] = JSON.stringify(window.state);
+  window.undoHistory[window.undoIndex] = {
+    currentListIndex: window.currentListIndex,
+    state: JSON.stringify(window.state)
+  }
 }
 
 function undo() {
@@ -120,9 +138,11 @@ function undo() {
   window.undoIndex--;
 
   // Restore to the previous state
-  window.state = JSON.parse(window.undoHistory[window.undoIndex]);
+  const { state, currentListIndex } = window.undoHistory[window.undoIndex];
+  window.state = JSON.parse(state);
+  window.currentListIndex = currentListIndex;
 
-  update();
+  updateState();
   render();
   save();
 }
@@ -134,9 +154,11 @@ function redo() {
   window.undoIndex++;
 
   // Restore to the state
-  window.state = JSON.parse(window.undoHistory[window.undoIndex]);
+  const { state, currentListIndex } = window.undoHistory[window.undoIndex];
+  window.state = JSON.parse(state);
+  window.currentListIndex = currentListIndex;
 
-  update();
+  updateState();
   render();
   save();
 }
@@ -151,7 +173,7 @@ function renderPage(state) {
   pageEl.classList.add(mode);
 
   pageEl.appendChild(renderNavigator(state));
-  pageEl.appendChild(renderList(state.lists[state.currentListIndex]));
+  pageEl.appendChild(renderList(state.lists[window.currentListIndex]));
   return pageEl;
 }
 
@@ -199,7 +221,7 @@ function renderNavigator(state) {
     itemEl.list = list;
     itemEl.classList.add('nav-item');
     if (listHasReadyItems) itemEl.classList.add('has-ready-items');
-    if (i === state.currentListIndex) itemEl.classList.add('active');
+    if (i === window.currentListIndex) itemEl.classList.add('active');
     itemEl.addEventListener('click', navListItemClick);
 
     const nameEl = itemEl.appendChild(document.createElement('h1'));
@@ -210,7 +232,7 @@ function renderNavigator(state) {
       readyIndicator.classList.add('ready-indicator');
     }
 
-    const allocatedAmount = Math.round(getAllocatedRate(list.allocated) * 365.25 / 12);
+    const allocatedAmount = Math.round(getAllocatedRate(list.budget) * 365.25 / 12);
     if (allocatedAmount) {
       const allocatedEl = itemEl.appendChild(renderCurrency(allocatedAmount, 0));
       allocatedEl.classList.add('allocated');
@@ -244,9 +266,9 @@ function renderTotals(state) {
   let totalSavedValue = 0;
   let totalSavedRate = 0;
   for (const list of state.lists) {
-    totalBudget += getAllocatedRate(list.allocated) * 365.25 / 12;
-    totalSavedValue += list.overflow.value;
-    totalSavedRate += list.overflow.rate;
+    totalBudget += getAllocatedRate(list.budget) * 365.25 / 12;
+    totalSavedValue += list.kitty.value;
+    totalSavedRate += list.kitty.rate;
     for (const item of list.items) {
       totalSavedValue += item.saved.value;
       totalSavedRate += item.saved.rate;
@@ -262,7 +284,7 @@ function renderTotals(state) {
   tr = table.appendChild(document.createElement('tr'));
   tr.appendChild(document.createElement('td')).textContent = 'Total available:';
 
-  const lastCommitTime = parseDate(state.time);
+  const lastCommitTime = deserializeDate(state.time);
   const totalSavedEl = tr.appendChild(document.createElement('td'))
     .appendChild(document.createElement('span'));
   totalSavedEl.classList.add('currency');
@@ -304,7 +326,10 @@ function renderList(list) {
   const heading = listNameSection.appendChild(document.createElement('h1'));
   heading.id = 'list-heading';
   heading.classList.add('list-heading')
-  makeEditable(heading, { obj: list, field: 'name' });
+  makeEditable(heading, {
+    read: () => list.name,
+    write: value => foldAction(window.state, { type: 'ListSetName', listId: list.id, newName: value })
+  });
 
   // Header info section
   const infoEl = listHeaderEl.appendChild(document.createElement('div'));
@@ -318,27 +343,26 @@ function renderList(list) {
   const allocatedAmountEl = allocatedEl.appendChild(document.createElement('div'));
   allocatedAmountEl.classList.add('allocated-amount');
   makeEditable(allocatedAmountEl, {
-    obj: list.allocated,
-    field: 'dollars',
-    writeTransform: parseCurrency
+    read: () => formatCurrency(list.budget.dollars),
+    write: v => foldAction(window.state, { type: 'ListSetBudget', listId: list.id, budget: { dollars: parseNonNegativeCurrency(v), unit: '/month' } })
   });
 
   // Allocated Unit
   const allocationUnitEl = allocatedEl.appendChild(document.createElement('div'));
   allocationUnitEl.classList.add('allocated-unit');
-  allocationUnitEl.textContent = list.allocated.unit;
+  allocationUnitEl.textContent = list.budget.unit;
 
   // Kitty
-  if (list.overflow.value || list.overflow.rate) {
+  if (list.kitty.value || list.kitty.rate) {
     const overflowEl = infoEl.appendChild(document.createElement('span'));
     overflowEl.classList.add('list-overflow');
-    if (list.overflow.value >= 0) {
-      overflowEl.appendChild(renderAmount(list.overflow));
+    if (list.kitty.value >= 0) {
+      overflowEl.appendChild(renderAmount(list.kitty));
       overflowEl.classList.remove('debt');
     } else {
       overflowEl.appendChild(renderAmount({
-        value: -list.overflow.value,
-        rate: -list.overflow.rate
+        value: -list.kitty.value,
+        rate: -list.kitty.rate
       }));
       overflowEl.classList.add('debt');
     }
@@ -426,16 +450,16 @@ function renderItem(item) {
   const nameEl = nameSectionEl.appendChild(document.createElement('div'));
   nameEl.classList.add('item-name');
   makeEditable(nameEl, {
-    obj: item,
-    field: 'name',
-    requiresRender: false
+    read: () => item.name,
+    write: name => foldAction(window.state, { type: 'ItemSetName', itemId: item.id, name }),
+    requiresRender: false,
   });
 
-  // Item description
-  if (item.description) {
-    const descriptionEl = nameSectionEl.appendChild(document.createElement('div'));
-    descriptionEl.classList.add('item-description');
-    descriptionEl.innerHTML = convertUrlsToLinks(item.description);
+  // Item note
+  if (item.note) {
+    const noteEl = nameSectionEl.appendChild(document.createElement('div'));
+    noteEl.classList.add('item-note');
+    noteEl.innerHTML = convertUrlsToLinks(item.note);
   }
 
   // Item Saved
@@ -453,19 +477,12 @@ function renderItem(item) {
   // Item Price
   const priceEl = infoSectionEl.appendChild(document.createElement('span'));
   makeEditable(priceEl, {
-    obj: item,
-    field: 'price',
-    readTransform: formatCurrency,
-    writeTransform: v => {
-      const newPrice = parseCurrency(v);
-      const list = itemEl.closest('.list').list;
-      // Excess goes into the kitty
-      if (newPrice < item.saved.value) {
-        list.overflow.value += item.saved.value - newPrice;
-        item.saved.value = newPrice;
-      }
-      return newPrice;
-    }
+    read: () => formatCurrency(item.price),
+    write: v => foldAction(window.state, {
+      type: 'ItemSetPrice',
+      itemId: item.id,
+      price: parseNonNegativeCurrency(v)
+    })
   });
   priceEl.classList.add('currency');
   priceEl.classList.add('price');
@@ -474,7 +491,7 @@ function renderItem(item) {
   const etaEl = infoSectionEl.appendChild(document.createElement('span'));
   etaEl.classList.add('eta');
   const etaStr = item.expectedDate
-    ? formatDate(parseDate(item.expectedDate))
+    ? formatDate(deserializeDate(item.expectedDate))
     : 'Ready';
   etaEl.appendChild(document.createTextNode(etaStr));
 
@@ -503,10 +520,10 @@ function createItemMenu(item) {
     smiley.setAttribute('width', 16);
     smiley.setAttribute('height', 16);
 
-    // Edit description
-    const editDescription = menu.newItem();
-    editDescription.textContent = `${item.description ? 'Edit' : 'Add'} note`;
-    editDescription.addEventListener('click', editItemDescriptionClick);
+    // Edit note
+    const editNote = menu.newItem();
+    editNote.textContent = `${item.note ? 'Edit' : 'Add'} note`;
+    editNote.addEventListener('click', editItemNoteClick);
 
     // Redistribute
     const redistribute = menu.newItem();
@@ -562,7 +579,6 @@ function renderAmount(amount) {
 
     return amountSpan;
   }
-
 
   const amountSpan = document.createElement('span');
   amountSpan.id = generateNewId();
@@ -625,53 +641,78 @@ function formatCurrency(value, decimals = 2) {
 }
 
 function finishedUserInteraction(requiresRender = true) {
-  update();
+  updateState();
   if (requiresRender) render();
   pushUndoPoint();
   save();
 }
 
-// Updates the state to the latest projected values and sets a timeout to repeat
-// automatically the next time that the state needs to change
-function update() {
-  let state = window.state;
-
-  const newTime = Date.now();
-
-  state ??= {};
-  state.time ??= serializeDate(newTime);
-  state.nextNonlinearity ??= null;
-  state.lists ??= [];
-  state.id ??= uuidv4();
-  state.currentListIndex ??= 0;
+// Updates (projects) the state to the latest projected values and sets a
+// timeout to repeat automatically the next time that the state needs to change
+function updateState() {
+  console.log('Update state');
+  const toTime = Date.now();
 
   // Need at least one list to render
-  state.lists.length < 1 && state.lists.push({});
+  if (state.lists.length < 1)
+    foldAction(state, { type: 'ListNew', id: uuidv4(), name: 'Wish list' });
 
-  state.currentListIndex = Math.max(state.currentListIndex, 0);
-  state.currentListIndex = Math.min(state.currentListIndex, state.lists.length - 1);
+  const { timeOfNextNonlinearity } = project(window.state, toTime);
 
-  const lastCommitTime = parseDate(state.time);
+  window.state = state;
+  window.nextNonlinearity = timeOfNextNonlinearity;
+  window.lastCommitTime = toTime;
+
+  if (timeOfNextNonlinearity) {
+    let timeoutPeriod = timeOfNextNonlinearity - Date.now();
+    console.log(`Next nonlinearity in ${timeoutPeriod/1000}s`)
+
+    window.nextNonLinearityTimer && clearTimeout(window.nextNonLinearityTimer);
+    if (timeoutPeriod > 2147483647)
+      timeoutPeriod = 2147483647
+    if (timeoutPeriod < 1)
+      timeoutPeriod = 1;
+    window.nextNonLinearityTimer = setTimeout(() => {
+      if (window.isEditing) {
+        console.log('Not updating at nonlinearity because user is busy editing')
+        return;
+      }
+      console.log('Updating at nonlinearity', formatDate(Date.now()))
+      updateState(window.state);
+      render();
+    }, timeoutPeriod)
+  }
+}
+
+// Projects the waterfall model to the future time `toTime`. Mutates `state` and
+// returns { timeOfNextNonlinearity }
+function project(state, toTime) {
+  console.assert(state);
+  console.assert(Array.isArray(state.lists));
+
+  state.time ??= serializeDate(toTime);
+
+  const lastCommitTime = deserializeDate(state.time);
   let timeOfNextNonlinearity = null;
 
   for (const list of state.lists) {
     list.name ??= 'Wish list';
-    list.allocated ??= { dollars: 0, unit: '/month' };
-    list.overflow ??= { value: 0, rate: 0 };
+    list.budget ??= list.allocated ?? { dollars: 0, unit: '/month' };
+    list.kitty ??= list.overflow ?? { value: 0, rate: 0 };
     list.items ??= [];
     list.purchaseHistory ??= [];
     list.id ??= uuidv4();
 
-    const allocatedRate = getAllocatedRate(list.allocated);
+    const allocatedRate = getAllocatedRate(list.budget);
 
     // We essentially iterate the time cursor forwards from the last commit time to the newTime
     let timeCursor = lastCommitTime;
 
     // The amount of money we have left over at `timeCursor`
-    let remainingMoneyToAllocate = list.overflow.value + rateInDollarsPerMs(allocatedRate) * (newTime - lastCommitTime);
+    let remainingMoneyToAllocate = list.kitty.value + rateInDollarsPerMs(allocatedRate) * (toTime - lastCommitTime);
 
     // Rate of change of remainingMoneyToAllocate at `timeCursor`, which
-    // eventually gets attributed to the overflow bucket
+    // eventually gets attributed to the kitty bucket
     let overflowRate = allocatedRate;
 
     // Are we in debt?
@@ -679,7 +720,7 @@ function update() {
     let debtRate = 0;
     if (remainingMoneyToAllocate < 0) {
       // The money isn't available to allocate to further items, so we move it
-      // to the "debt" variable, which we'll put back in the overflow later
+      // to the "debt" variable, which we'll put back in the kitty later
       debt = -remainingMoneyToAllocate;
       debtRate = -overflowRate;
       remainingMoneyToAllocate = 0;
@@ -699,6 +740,8 @@ function update() {
       item.price ??= 0;
       item.saved ??= { value: 0, rate: 0 };
       item.id ??= uuidv4();
+      item.note ??= item.description; // Migrate from old name "description" to new name "note" // TODO: Remove this after a while
+      item.description = item.note; // TODO: Remove this after a while
 
       // Remaining item cost at the time of last commit
       const remainingCost = item.price - item.saved.value;
@@ -730,91 +773,62 @@ function update() {
       }
     }
 
-    // If there's still money left over, it goes into the overflow
-    list.overflow.value = remainingMoneyToAllocate - debt;
-    list.overflow.rate = overflowRate - debtRate;
+    // If there's still money left over, it goes into the kitty
+    list.kitty.value = remainingMoneyToAllocate - debt;
+    list.kitty.rate = overflowRate - debtRate;
   }
 
-  state.time = serializeDate(newTime);
+  state.time = serializeDate(toTime);
   state.nextNonlinearity = timeOfNextNonlinearity
     ? serializeDate(timeOfNextNonlinearity)
     : null;
 
-  window.state = state;
-  window.nextNonlinearity = timeOfNextNonlinearity;
-  window.lastCommitTime = newTime;
-
-  if (timeOfNextNonlinearity) {
-    let timeoutPeriod = timeOfNextNonlinearity - Date.now();
-    console.log(`Next nonlinearity in ${timeoutPeriod/1000}s`)
-
-    window.nextNonLinearityTimer && clearTimeout(window.nextNonLinearityTimer);
-    if (timeoutPeriod > 2147483647)
-      timeoutPeriod = 2147483647
-    if (timeoutPeriod < 1)
-      timeoutPeriod = 1;
-    window.nextNonLinearityTimer = setTimeout(() => {
-      if (window.isEditing) {
-        console.log('Not updating at nonlinearity because user is busy editing')
-        return;
-      }
-      console.log('Updating at nonlinearity', formatDate(Date.now()))
-      update(window.state);
-      render();
-    }, timeoutPeriod)
-  }
+  return { timeOfNextNonlinearity };
 }
 
-function getAllocatedRate(allocated) {
-  if (allocated.unit === '/month')
-    return allocated.dollars * 12 / 365.25;
+function getAllocatedRate(budget) {
+  if (budget.unit === '/month')
+    return budget.dollars * 12 / 365.25;
   else
-  if (allocated.unit === '/day')
-    return allocated.dollars;
+  if (budget.unit === '/day')
+    return budget.dollars;
   else
     throw new Error('Unknown unit')
 }
 
 function deleteItemClick(event) {
-  update();
-
   const item = event.target.closest(".item").item;
-  const list = event.target.closest(".list").list;
-  const items = list.items;
-  const index = items.indexOf(item);
-  items.splice(index, 1);
 
-  // Put the value back into the kitty
-  list.overflow.value += item.saved.value;
+  foldAction(window.state, { type: 'ItemDelete', itemId: item.id });
 
   finishedUserInteraction();
 }
 
 function redistributeItemClick(event) {
-  update();
 
   const item = event.target.closest(".item").item;
-  const list = event.target.closest(".list").list;
 
-  list.overflow.value += item.saved.value;
-  item.saved.value = 0;
+  foldAction(window.state, {
+    type: 'ItemRedistributeMoney',
+    itemId: item.id
+  });
 
   finishedUserInteraction();
 }
 
-function editItemDescriptionClick(event) {
-  update();
+function editItemNoteClick(event) {
+  updateState();
 
   const item = event.target.closest(".item").item;
 
   const dialogContentEl = document.createElement('div');
-  dialogContentEl.classList.add('edit-description-dialog');
+  dialogContentEl.classList.add('edit-note-dialog');
 
-  const descriptionInput = dialogContentEl.appendChild(document.createElement('input'));
-  descriptionInput.classList.add('description');
-  descriptionInput.value = item.description ?? '';
+  const noteInput = dialogContentEl.appendChild(document.createElement('input'));
+  noteInput.classList.add('note');
+  noteInput.value = item.note ?? '';
 
-  descriptionInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
+  noteInput.addEventListener('keyup', e => e.code === 'Enter' && apply());
 
   showDialog('Add note for ' + item.name, dialogContentEl, [{
     text: 'Cancel',
@@ -825,11 +839,15 @@ function editItemDescriptionClick(event) {
     action: apply
   }]);
 
-  descriptionInput.focus();
-  descriptionInput.select();
+  noteInput.focus();
+  noteInput.select();
 
   function apply() {
-    item.description = descriptionInput.value;
+    foldAction(window.state, {
+      type: 'ItemSetNote',
+      itemId: item.id,
+      note: noteInput.value
+    });
 
     finishedUserInteraction();
   }
@@ -838,7 +856,7 @@ function editItemDescriptionClick(event) {
 function purchaseItemClick(event) {
   hideMenu();
 
-  update();
+  updateState();
 
   const item = event.target.closest(".item").item;
   const list = event.target.closest(".list").list;
@@ -873,7 +891,7 @@ function purchaseItemClick(event) {
 
     actualPriceInput.classList.remove('invalid');
 
-    const actualPrice = parseCurrency(actualPriceInput.value);
+    const actualPrice = parseNonNegativeCurrency(actualPriceInput.value);
 
     const toAddToKitty = item.saved.value - actualPrice;
     if (toAddToKitty > 0.01) {
@@ -903,21 +921,13 @@ function purchaseItemClick(event) {
   actualPriceInput.select();
 
   function apply() {
-    update();
+    const actualPrice = parseNonNegativeCurrency(actualPriceInput.value);
 
-    const actualPrice = parseCurrency(actualPriceInput.value);
-
-    // Put all the money back into the kitty except which what was paid
-    list.overflow.value += item.saved.value - actualPrice;
-
-    list.purchaseHistory.push({
-      name: item.name,
-      priceEstimate: item.price,
-      price: actualPrice,
-      purchaseDate: serializeDate(Date.now())
-    });
-
-    list.items.splice(list.items.indexOf(item), 1);
+    foldAction(window.state, {
+      type: 'ItemPurchase',
+      itemId: item.id,
+      actualPrice
+    })
 
     finishedUserInteraction();
   }
@@ -960,10 +970,8 @@ function hideDialog() {
 }
 
 function addItemClick(event) {
-  update();
-
   const list = event.target.closest(".list").list;
-  list.items.push({ });
+  foldAction(window.state, { type: 'ItemNew', listId: list.id });
 
   finishedUserInteraction();
 
@@ -1002,7 +1010,7 @@ function serializeDate(date) {
     : new Date(date).toISOString();
 }
 
-function parseDate(date) {
+function deserializeDate(date) {
   return date === 'never'
     ? Infinity
     : Date.parse(date)
@@ -1029,15 +1037,10 @@ function windowBlurEvent() {
   hideMenu();
 }
 
-function makeEditable(el, { obj, field, readTransform, writeTransform, requiresRender }) {
+function makeEditable(el, { read, write, requiresRender }) {
   requiresRender ??= true;
-  writeTransform ??= v => v;
-  readTransform ??= v => v;
-  const read = () => readTransform(obj[field]);
-  const write = value => {
-    obj[field] = writeTransform(value);
-    obj[field + 'Modified'] = serializeDate(Date.now());
-  }
+  console.assert(read);
+  console.assert(write);
 
   el.setAttribute('contentEditable', true);
   el.addEventListener('focus', focus)
@@ -1055,7 +1058,7 @@ function makeEditable(el, { obj, field, readTransform, writeTransform, requiresR
 
   function blur() {
     if (el.textContent !== read()) {
-      update();
+      updateState();
       write(el.textContent);
       endEdit(true, requiresRender);
     } else {
@@ -1079,13 +1082,13 @@ function navListItemClick(event) {
   const list = event.target.list ?? event.target.closest(".nav-item").list;
 
   const index = window.state.lists.indexOf(list);
-  window.state.currentListIndex = index;
+  window.currentListIndex = index;
 
-  finishedUserInteraction();
+  render();
 }
 
 function beginEdit(el) {
-  update();
+  updateState();
 
   window.isEditing = true;
   window.elementBeingEdited = el;
@@ -1112,15 +1115,14 @@ function endEdit(changed = true, requiresRender = true) {
 }
 
 function newListClick() {
-  update();
-
-  let newListName = 'Wish list';
+  let name = 'Wish list';
   let counter = 1;
-  while (window.state.lists.some(l => l.name === newListName))
-    newListName = `Wish list ${++counter}`;
+  while (window.state.lists.some(l => l.name === name))
+    name = `Wish list ${++counter}`;
 
-  window.state.lists.push({ name: newListName });
-  window.state.currentListIndex = window.state.lists.length - 1;
+  foldAction(window.state, { type: 'ListNew', name });
+
+  window.currentListIndex = window.state.lists.length - 1;
 
   finishedUserInteraction();
 
@@ -1128,8 +1130,12 @@ function newListClick() {
   selectAllInContentEditable(listHeading);
 }
 
-function parseCurrency(value) {
+function parseNonNegativeCurrency(value) {
   return Math.max(parseFloat(value) || 0, 0)
+}
+
+function parseCurrency(value) {
+  return parseFloat(value) || 0;
 }
 
 function createPlusSvg() {
@@ -1202,19 +1208,15 @@ function itemDrop(event) {
 
   event.dataTransfer.dropEffect = 'move';
 
-  update();
-
   const list = event.target.closest('.list').list;
   const targetItem = event.target.item ?? event.target.closest('.item').item;
 
-  const sourceIndex = list.items.indexOf(sourceItem);
-  const targetIndex = list.items.indexOf(targetItem);
-
-  list.items.splice(sourceIndex, 1);
-  list.items.splice(targetIndex, 0, sourceItem);
-
-  sourceItem.index = targetIndex;
-  sourceItem.indexModified = serializeDate(Date.now());
+  foldAction(window.state, {
+    type: 'ItemMove',
+    itemId: sourceItem.id,
+    targetListId: list.id,
+    targetIndex: list.items.indexOf(targetItem),
+  });
 
   finishedUserInteraction();
 }
@@ -1352,12 +1354,10 @@ function toggleMenu(menu) {
 }
 
 function deleteListClick(event) {
-  update();
-
   const list = event.target.closest('.list').list;
-  const lists = window.state.lists;
-  lists.splice(lists.indexOf(list), 1);
-  window.state.currentListIndex--;
+
+  foldAction(window.state, { type: 'ListDelete', listId: list.id })
+  window.currentListIndex--;
 
   finishedUserInteraction();
 }
@@ -1365,7 +1365,7 @@ function deleteListClick(event) {
 function injectMoneyClick(event) {
   hideMenu();
 
-  update();
+  updateState();
 
   const list = event.target.closest('.list').list;
 
@@ -1403,11 +1403,9 @@ function injectMoneyClick(event) {
   amountInput.select();
 
   function apply() {
-    update();
-
     const amount = parseCurrency(amountInput.value);
 
-    list.overflow.value += amount;
+    foldAction(window.state, { type: 'ListInjectMoney', listId: list.id, amount });
 
     finishedUserInteraction();
   }
@@ -1617,7 +1615,7 @@ function restoreScrollPosition() {
 
 function selectAllInContentEditable(el) {
   el.focus();
-  document.execCommand('selectAll', false, null);
+  //document.execCommand('selectAll', false, null);
 }
 
 // https://stackoverflow.com/a/2117523
@@ -1625,4 +1623,229 @@ function uuidv4() {
   return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
     (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
   );
+}
+
+// Mutates `state` to include the effect of the given action
+function foldAction(state, action) {
+  action.id ??= uuidv4();
+  action.time ??= serializeDate(Date.now());
+  const time = deserializeDate(action.time);
+
+  project(state, time);
+
+  // For backwards compatibility with states that weren't created using an
+  // actions list, we need to set up an actions list that is equivalent to the
+  // existing state.
+  // TODO: Remove this at some point
+  if (!state.actions) {
+    Object.assign(state, emptyState());
+    foldAction(state, {
+      type: 'MigrateState',
+      id: state.id,
+      time: state.time,
+      state: {
+        id: state.id,
+        lists: state.lists.map(list => ({
+          id: list.id,
+          name: list.name,
+          budget: {
+            dollars: list.allocated.dollars,
+            unit: list.allocated.unit
+          },
+          kitty: {
+            value: list.overflow.value,
+            rate: list.overflow.rate
+          },
+          purchaseHistory: list.purchaseHistory.map(p => ({
+            id: p.id,
+            name: p.name,
+            priceEstimate: p.priceEstimate,
+            price: p.price,
+            purchaseDate: p.purchaseDate
+          })),
+          items: list.items.map(i => ({
+            id: i.name,
+            price: i.price,
+            saved: { value: i.value, rate: i.rate },
+            note: i.note ?? i.description
+          }))
+        }))
+      }
+    });
+  }
+
+  // Like a git hash, if "actions" are like commits. The hash allows us to
+  // quickly merge two histories or determine if there's a conflict (a fork in
+  // the history). Note that "JSON.stringify" here is technically not correct
+  // since it's not guaranteed to produce a canonical/deterministic output each
+  // time across different environments, but in this case it's safe for it to
+  // produce a different hash for the same history since it will just fall back
+  // to a full history merge (the hash is just used as an optimization).
+  //
+  // Note that the state hash isn't actually a hash of the full state, but a
+  // hash that includes the whole action history, which fully determines the
+  // state, excluding differences in the projected time.
+  state.hash = action.hash = md5Hash(JSON.stringify([state.hash, action]));
+
+  state.actions.push(action);
+
+  const findList = id => state.lists.find(l => l.id == id);
+  const findItem = id => {
+    for (const list of state.lists)
+      for (const item of list.items)
+        if (item.id == id) return { list, item };
+  }
+
+  switch (action.type) {
+    case 'New': {
+      state.id = action.id;
+      state.time = action.time;
+      state.lists = [];
+      break;
+    }
+    case 'MigrateState': {
+      // Migrate from a pre-event-sourced state structure
+      Object.assign(state, deepClone(action.state));
+      state.time = action.time;
+      break;
+    }
+    case 'ListNew': {
+      state.lists.push({ id: action.id, name: action.name });
+      break;
+    }
+    case 'ListDelete': {
+      const index = state.lists.findIndex(list => list.id = action.listId);
+      if (index != -1) state.lists.splice(index, 1);
+      break;
+    }
+    case 'ListSetName': {
+      const list = findList(action.listId);
+      if (list) list.name = action.newName;
+      break;
+    }
+    case 'ListSetBudget': {
+      const list = findList(action.listId);
+      if (list) Object.assign(list.budget, action.budget);
+      break;
+    }
+    case 'ListInjectMoney': {
+      const list = findList(action.listId);
+      if (list) list.kitty.value += action.amount;
+      break;
+    }
+    case 'ItemNew': {
+      findList(action.listId)?.items?.push({ id: action.id });
+      break;
+    }
+    case 'ItemMove': {
+      const source = findItem(action.itemId);
+      const targetList = findList(action.targetListId);
+      if (!source || !targetList) break;
+
+      const sourceIndex = source.list.items.indexOf(source.item);
+      console.assert(sourceIndex != -1);
+      const targetIndex = Math.max(Math.min(action.targetIndex, targetList.items.length - 1), 0);
+
+      source.list.items.splice(sourceIndex, 1);
+      targetList.items.splice(targetIndex, 0, source.item);
+      break;
+    }
+    case 'ItemDelete': {
+      const found = findItem(action.itemId);
+      if (!found) break;
+      const { item, list } = found;
+
+      const index = list.items.indexOf(item);
+      console.assert(index != -1);
+      list.items.splice(index, 1);
+
+      // Put the value back into the kitty
+      list.kitty.value += item.saved.value;
+      break;
+    }
+    case 'ItemSetName': {
+      const item = findItem(action.itemId)?.item;
+      if (item) item.name = action.name;
+      break;
+    }
+    case 'ItemSetPrice': {
+      const found = findItem(action.itemId);
+      if (!found) break;
+      const { item, list } = found;
+
+      item.price = action.price;
+
+      // Excess goes into the kitty
+      if (action.price < item.saved.value) {
+        list.kitty.value += item.saved.value - action.price;
+        item.saved.value = action.price;
+      }
+      break;
+    }
+    case 'ItemSetNote': {
+      const item = findItem(action.itemId)?.item;
+      if (item) item.note = action.note;
+      if (item) item.description = action.note; // TODO: Remove this after a while
+      break;
+    }
+    case 'ItemPurchase': {
+      const found = findItem(action.itemId);
+      if (!found) break;
+      const { list, item } = found;
+
+      // Put all the money back into the kitty except which what was paid
+      list.kitty.value += item.saved.value - action.actualPrice;
+
+      list.purchaseHistory.push({
+        id: item.id,
+        name: item.name,
+        priceEstimate: item.price,
+        price: action.actualPrice,
+        purchaseDate: action.time
+      });
+
+      list.items.splice(list.items.indexOf(item), 1);
+      break;
+    }
+    case 'ItemRedistributeMoney': {
+      const found = findItem(action.itemId);
+      if (!found) break;
+      const { list, item } = found;
+
+      list.kitty.value += item.saved.value;
+      item.saved.value = 0;
+      break;
+    }
+  }
+
+  // Run another projection just to update any side effects of the action. For
+  // example, redistributing newly-available cash
+  project(state, time);
+
+  return state;
+}
+
+// https://stackoverflow.com/a/33486055
+function md5Hash(d){var r = M(V(Y(X(d),8*d.length)));return r.toLowerCase()};function M(d){for(var _,m="0123456789ABCDEF",f="",r=0;r<d.length;r++)_=d.charCodeAt(r),f+=m.charAt(_>>>4&15)+m.charAt(15&_);return f}function X(d){for(var _=Array(d.length>>2),m=0;m<_.length;m++)_[m]=0;for(m=0;m<8*d.length;m+=8)_[m>>5]|=(255&d.charCodeAt(m/8))<<m%32;return _}function V(d){for(var _="",m=0;m<32*d.length;m+=8)_+=String.fromCharCode(d[m>>5]>>>m%32&255);return _}function Y(d,_){d[_>>5]|=128<<_%32,d[14+(_+64>>>9<<4)]=_;for(var m=1732584193,f=-271733879,r=-1732584194,i=271733878,n=0;n<d.length;n+=16){var h=m,t=f,g=r,e=i;f=md5_ii(f=md5_ii(f=md5_ii(f=md5_ii(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_ff(f=md5_ff(f=md5_ff(f=md5_ff(f,r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+0],7,-680876936),f,r,d[n+1],12,-389564586),m,f,d[n+2],17,606105819),i,m,d[n+3],22,-1044525330),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+4],7,-176418897),f,r,d[n+5],12,1200080426),m,f,d[n+6],17,-1473231341),i,m,d[n+7],22,-45705983),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+8],7,1770035416),f,r,d[n+9],12,-1958414417),m,f,d[n+10],17,-42063),i,m,d[n+11],22,-1990404162),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+12],7,1804603682),f,r,d[n+13],12,-40341101),m,f,d[n+14],17,-1502002290),i,m,d[n+15],22,1236535329),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+1],5,-165796510),f,r,d[n+6],9,-1069501632),m,f,d[n+11],14,643717713),i,m,d[n+0],20,-373897302),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+5],5,-701558691),f,r,d[n+10],9,38016083),m,f,d[n+15],14,-660478335),i,m,d[n+4],20,-405537848),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+9],5,568446438),f,r,d[n+14],9,-1019803690),m,f,d[n+3],14,-187363961),i,m,d[n+8],20,1163531501),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+13],5,-1444681467),f,r,d[n+2],9,-51403784),m,f,d[n+7],14,1735328473),i,m,d[n+12],20,-1926607734),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+5],4,-378558),f,r,d[n+8],11,-2022574463),m,f,d[n+11],16,1839030562),i,m,d[n+14],23,-35309556),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+1],4,-1530992060),f,r,d[n+4],11,1272893353),m,f,d[n+7],16,-155497632),i,m,d[n+10],23,-1094730640),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+13],4,681279174),f,r,d[n+0],11,-358537222),m,f,d[n+3],16,-722521979),i,m,d[n+6],23,76029189),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+9],4,-640364487),f,r,d[n+12],11,-421815835),m,f,d[n+15],16,530742520),i,m,d[n+2],23,-995338651),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+0],6,-198630844),f,r,d[n+7],10,1126891415),m,f,d[n+14],15,-1416354905),i,m,d[n+5],21,-57434055),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+12],6,1700485571),f,r,d[n+3],10,-1894986606),m,f,d[n+10],15,-1051523),i,m,d[n+1],21,-2054922799),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+8],6,1873313359),f,r,d[n+15],10,-30611744),m,f,d[n+6],15,-1560198380),i,m,d[n+13],21,1309151649),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+4],6,-145523070),f,r,d[n+11],10,-1120210379),m,f,d[n+2],15,718787259),i,m,d[n+9],21,-343485551),m=safe_add(m,h),f=safe_add(f,t),r=safe_add(r,g),i=safe_add(i,e)}return Array(m,f,r,i)}function md5_cmn(d,_,m,f,r,i){return safe_add(bit_rol(safe_add(safe_add(_,d),safe_add(f,i)),r),m)}function md5_ff(d,_,m,f,r,i,n){return md5_cmn(_&m|~_&f,d,_,r,i,n)}function md5_gg(d,_,m,f,r,i,n){return md5_cmn(_&f|m&~f,d,_,r,i,n)}function md5_hh(d,_,m,f,r,i,n){return md5_cmn(_^m^f,d,_,r,i,n)}function md5_ii(d,_,m,f,r,i,n){return md5_cmn(m^(_|~f),d,_,r,i,n)}function safe_add(d,_){var m=(65535&d)+(65535&_);return(d>>16)+(_>>16)+(m>>16)<<16|65535&m}function bit_rol(d,_){return d<<_|d>>>32-_}
+
+function rebuildStateFromActions(id, actions) {
+  const newState = actions.reduce(foldAction, { ...emptyState(), id });
+  window.lastCommitTime = deserializeDate(newState.time);
+  return newState;
+}
+
+function emptyState() {
+  return {
+    actions: [],
+    lists: [],
+    hash: md5Hash('')
+  }
+}
+
+function newState(id) {
+  return foldAction(emptyState(), { type: 'New', id });
+}
+
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
 }
