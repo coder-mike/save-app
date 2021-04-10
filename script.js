@@ -32,7 +32,7 @@ window.saveState = async () => {
   }
 };
 
-window.loadState = async () => {
+window.loadState = async (renderOnChange) => {
   try {
     switch (mode) {
       case 'electron-local': {
@@ -52,7 +52,7 @@ window.loadState = async () => {
         break;
       }
       case 'online': {
-        await syncWithServer();
+        await syncWithServer(renderOnChange);
         break;
       }
     }
@@ -60,7 +60,6 @@ window.loadState = async () => {
     console.error(e);
     window.state = newState(uuidv4());
   }
-  upgradeStateFormat();
 }
 
 window.addEventListener('load', async() => {
@@ -69,8 +68,10 @@ window.addEventListener('load', async() => {
   window.debugMode = false;
   if (window.debugMode) window.state.time = serializeDate(Date.now());
 
-  await window.loadState();
+  await window.loadState(false);
+  updateState();
   pushUndoPoint();
+  render();
 
   occasionallyRebuild();
 });
@@ -1908,7 +1909,9 @@ function upgradeStateFormat(state) {
   return state;
 }
 
-async function syncWithServer() {
+async function syncWithServer(renderOnChange = true) {
+  if (mode !== 'online') return;
+
   console.log('Synchronizing with server');
   let state = window.state;
 
@@ -1937,7 +1940,7 @@ async function syncWithServer() {
     console.log('Loading changes');
     window.state = state;
     window.lastCommitTime = deserializeDate(state.time);
-    render();
+    if (renderOnChange) render();
   }
 }
 
