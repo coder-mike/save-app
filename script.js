@@ -150,7 +150,7 @@ function redo() {
 
 function renderPage(state) {
   const pageEl = document.createElement('div');
-  pageEl.classList.add('page');
+  pageEl.id = 'page';
 
   if (window.debugMode)
     pageEl.classList.add('debug-mode');
@@ -159,6 +159,12 @@ function renderPage(state) {
 
   pageEl.appendChild(renderNavigator(state));
   pageEl.appendChild(renderList(state.lists[window.currentListIndex]));
+
+  // The gray overlay that goes underneath the mobile nav menu
+  const mobileNavBackground = pageEl.appendChild(document.createElement('div'));
+  mobileNavBackground.id = 'mobile-nav-background';
+  mobileNavBackground.addEventListener('click', hideMobileNav);
+
   return pageEl;
 }
 
@@ -299,7 +305,10 @@ function renderList(list) {
   listEl.list = list;
   listEl.classList.add('list');
 
-  // Header
+  // Mobile top menu
+  listEl.appendChild(renderMobileTopMenuBar());
+
+  // List header
   const listHeaderEl = listEl.appendChild(document.createElement('div'));
   listHeaderEl.classList.add('list-header');
 
@@ -376,6 +385,25 @@ function renderList(list) {
   addItemEl.appendChild(createPlusSvg());
 
   return listEl;
+}
+
+function renderMobileTopMenuBar() {
+  const mobileTopMenuEl = document.createElement('div');
+  mobileTopMenuEl.id = 'mobile-top-menu';
+  mobileTopMenuEl.addEventListener('click', () => {
+    const page = document.getElementById('page');
+    if (page.classList.contains('mobile-nav-showing')) {
+      page.classList.remove('mobile-nav-showing');
+    } else {
+      page.classList.add('mobile-nav-showing');
+    }
+  });
+
+  const menuButton = mobileTopMenuEl.appendChild(document.createElement('button'));
+  menuButton.className = 'mobile-top-menu-button';
+  menuButton.appendChild(createMobileNavMenuButtonSvg());
+
+  return mobileTopMenuEl;
 }
 
 function createListMenu() {
@@ -1221,7 +1249,7 @@ function createSmileySvg() {
   svg.setAttribute('viewBox', `${-r - margin} ${-r - margin} ${w} ${w}`);
   svg.setAttribute('width', w);
   svg.setAttribute('height', w);
-  svg.style.display = 'block';
+  // svg.style.display = 'block';
 
   const circle = svg.appendChild(document.createElementNS(svgNS, 'circle'));
   circle.classList.add('head');
@@ -1949,7 +1977,6 @@ async function loadRemoteState() {
   return response.success ? response.state : undefined;
 }
 
-
 async function saveRemoteState(state) {
   await apiRequest('save', { userId: window.userInfo.id, state });
 }
@@ -1960,4 +1987,34 @@ function parseState(json) {
 
 function sameState(state1, state2) {
   return state1?.hash === state2?.hash;
+}
+
+function hideMobileNav() {
+  document.getElementById('page').classList.remove('mobile-nav-showing');
+}
+
+function createMobileNavMenuButtonSvg() {
+  const thickness = 2;
+  const margin = 1;
+  const pitch = 5;
+  const h = thickness + pitch * 2 + margin * 2;
+  const w = h;
+
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.classList.add('nav-menu-glyph');
+  svg.setAttribute('viewBox', `${-w/2} ${-h/2} ${w} ${h}`);
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', h);
+  svg.style.display = 'block';
+
+  for (let i = -1; i <= 1; i++) {
+    const line = svg.appendChild(document.createElementNS(svgNS, 'line'));
+    line.setAttribute('x1', -w/2 + margin);
+    line.setAttribute('x2', +w/2 - margin);
+    line.setAttribute('y1', i * pitch);
+    line.setAttribute('y2', i * pitch);
+    line.setAttribute('stroke-width', thickness);
+  }
+
+  return svg;
 }

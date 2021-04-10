@@ -38,22 +38,20 @@ body {
   padding: 0;
 }
 
-.page {
+#page {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  display: grid;
-  grid-template-columns: 300px auto;
-  grid-template-rows: 100%;
+  display: flex;
   padding: 0;
   margin: 0;
   height: 100%;
   cursor: default;
 }
 
-.page.debug-mode {
+#page.debug-mode {
   border: 5px solid red;
 }
 
@@ -96,9 +94,73 @@ button:focus {
   box-shadow: inset -5px 0 3px -5px rgba(0,0,0,0.2);
   overflow-x: hidden;
   overflow-y: auto;
+  flex-basis: 300px;
+  max-width: 300px;
   display: flex;
   flex-direction: column;
 }
+
+#mobile-nav-background {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0.5,0.5,0.5,0.6);
+  z-index: 2;
+}
+
+#mobile-top-menu {
+  display: none;
+  background-color: #444;
+  padding: 3px;
+  text-align: left;
+  height: 32px;
+  z-index: 1;
+}
+
+.online #mobile-top-menu {
+  background-color: #afead3;
+}
+
+.nav-menu-glyph {
+  stroke: white;
+}
+
+.online .nav-menu-glyph {
+  stroke: black;
+}
+
+@media screen and (max-width: 900px) {
+  /* The background behind the menu when it's showing */
+  .mobile-nav-showing #mobile-nav-background {
+    display: block;
+  }
+
+  .nav-panel {
+    box-shadow: 0px 0 5px rgba(0,0,0,0.5);
+    position: fixed;
+    top: 0;
+    width: 300px;
+    left: -305px;
+    bottom: 0;
+    z-index: 3;
+    transition: left ease 0.2s;
+  }
+
+  .mobile-nav-showing .nav-panel {
+    left: 0;
+  }
+
+  #mobile-top-menu {
+    display: block;
+    position: sticky;
+    top: 0;
+  }
+}
+
+/* ------------------------ Nav.User Panel --------------------- */
 
 .nav-panel .user-panel {
   position: relative;
@@ -164,25 +226,7 @@ button:focus {
   flex-grow: 1;
 }
 
-.nav-panel .totals-section {
-  margin: 10px;
-  padding: 10px;
-  border-top: 1px solid rgba(0,0,0,0.2);
-}
-
-.nav-panel .totals-section table {
-  width: 100%;
-}
-
-.nav-panel .totals-section td  {
-  padding: 3px 6px;
-  text-align: right;
-}
-
-.nav-panel .totals-section td:nth-child(2)  {
-  font-weight: 500;
-  width: 70px;
-}
+/* ------------------------ Nav.Items --------------------- */
 
 .nav-item {
   margin: 0px 10px;
@@ -221,6 +265,28 @@ button:focus {
   text-align: right;
 }
 
+/* ------------------------ Nav.Totals --------------------- */
+
+.nav-panel .totals-section {
+  margin: 10px;
+  padding: 10px;
+  border-top: 1px solid rgba(0,0,0,0.2);
+}
+
+.nav-panel .totals-section table {
+  width: 100%;
+}
+
+.nav-panel .totals-section td  {
+  padding: 3px 6px;
+  text-align: right;
+}
+
+.nav-panel .totals-section td:nth-child(2)  {
+  font-weight: 500;
+  width: 70px;
+}
+
 .nav-panel .report-issues {
   text-align: right;
   padding: 10px 30px;
@@ -234,15 +300,15 @@ button:focus {
   overflow-y: auto;
   text-align: center;
   padding-bottom: 30px;
+  flex: 1 0 0;
 }
 
 .list-header {
-  position: relative;
   text-align: left;
   display: flex;
   align-items: center;
   position: sticky;
-  top: 0;
+  top: 0px;
   background-color: white;
   z-index: 1;
 }
@@ -332,6 +398,31 @@ button:focus {
   padding: 0 50px 10px 50px;
 }
 
+@media screen and (max-width: 900px) {
+  .list .items-list {
+    padding: 0 10px 10px 10px;
+  }
+
+  .list .purchase-history {
+    padding: 0 10px;
+  }
+
+  .list-header .menu-container {
+    height: 50px;
+  }
+
+  .list-header h1.list-heading {
+    margin: 10px 10px;
+    padding: 5px 5px;
+    font-weight: 500;
+    font-size: 1.2em;
+  }
+
+  .list-header {
+    top: 32px;
+  }
+}
+
 /* ------------------------ Item --------------------- */
 
 .item,.history-item {
@@ -381,6 +472,25 @@ button:focus {
   width: 350px;
 }
 
+@media screen and (max-width: 900px) {
+  .item-inner {
+    padding: 10px;
+    height: 60px;
+  }
+
+  .item .menu-container {
+    width: 0px;
+    position: relative;
+    right: 27px;
+  }
+
+  .item .menu-button {
+    visibility: visible;
+    opacity: 0.5;
+    padding: 3px;
+  }
+}
+
 /* ------------------------ Item:Dragging --------------------- */
 
 .item.item-dragging {
@@ -413,6 +523,12 @@ button:focus {
 .item-name {
   font-size: 1.0em;
   display: inline-block;
+}
+
+@media screen and (max-width: 900px) {
+  .name-section {
+    max-width: none;
+  }
 }
 
 /* ------------------------ Item.Note --------------------- */
@@ -464,6 +580,12 @@ button:focus {
   opacity: 0.5;
 }
 
+@media screen and (max-width: 900px) {
+  .item .saved {
+    display: none;
+  }
+}
+
 /* ------------------------ Item.Info --------------------- */
 
 .item .info-section {
@@ -474,6 +596,12 @@ button:focus {
   justify-content: center;
   align-items: flex-end;
   padding-right: 10px;
+}
+
+@media screen and (max-width: 900px) {
+  .item .info-section {
+    flex: 0 0 auto;
+  }
 }
 
 /* ------------------------ Item.Price --------------------- */
@@ -678,6 +806,17 @@ input.invalid {
   /* fill: black; */
 }
 
+@media screen and (max-width: 900px) {
+  .history-item .item-inner  {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .history-item .smiley {
+    display: none;
+  }
+}
+
 /* ------------------------ Menu --------------------- */
 
 .menu-container {
@@ -789,4 +928,13 @@ textarea,
 [contenteditable] {
   -webkit-user-select: text;
   user-select: text;
+}
+
+button {
+  cursor: pointer;
+  padding: 5px;
+}
+
+button:hover {
+  background-color: rgba(0,0,0,0.07);
 }
