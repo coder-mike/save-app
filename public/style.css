@@ -3,6 +3,9 @@
 :root {
   --border-radius: 4px;
   --mobile-top-menu-height: 35px;
+  --sync-pending-color: #afafaf;
+  --sync-success-color: #afead3;
+  --sync-failure-color: #eaafaf;
 }
 
 html {
@@ -131,8 +134,16 @@ button:focus {
   z-index: 1;
 }
 
-.online #mobile-top-menu {
-  background-color: #afead3;
+.online.sync-pending #mobile-top-menu {
+  background-color: var(--sync-pending-color);
+}
+
+.online.sync-success #mobile-top-menu {
+  background-color: var(--sync-success-color);
+}
+
+.online.sync-failure #mobile-top-menu {
+  background-color: var(--sync-failure-color);
 }
 
 .nav-menu-glyph {
@@ -205,11 +216,22 @@ button:focus {
 }
 
 .online .nav-panel .user-panel {
-  background-color: #afead3;
   color: rgba(0,0,0,0.7);
   padding: 0;
   text-align: left;
   padding: 13px;
+}
+
+.online.sync-pending .nav-panel .user-panel {
+  background-color: var(--sync-pending-color);
+}
+
+.online.sync-failure .nav-panel .user-panel {
+  background-color: var(--sync-failure-color);
+}
+
+.online.sync-success .nav-panel .user-panel {
+  background-color: var(--sync-success-color);
 }
 
 .online .nav-panel .user-status {

@@ -26,7 +26,7 @@ window.saveState = async () => {
       break;
     }
     case 'online': {
-      await syncWithServer();
+      await synchronize();
       break;
     }
   }
@@ -52,7 +52,7 @@ window.loadState = async (renderOnChange) => {
         break;
       }
       case 'online': {
-        await syncWithServer(renderOnChange);
+        await synchronize(renderOnChange);
         break;
       }
     }
@@ -63,6 +63,7 @@ window.loadState = async (renderOnChange) => {
 }
 
 window.addEventListener('load', async() => {
+  window.syncStatus = 'sync-pending';
   window.undoHistory = []; // List of action IDs available to undo
   window.undoIndex = 0; // Points after the last entry in undoHistory
   window.debugMode = false;
@@ -81,13 +82,15 @@ window.addEventListener('load', async() => {
   occasionallyRebuild();
 });
 
-window.addEventListener('focus', syncWithServer);
+window.addEventListener('focus', synchronize);
 
 document.addEventListener('keydown', documentKeyDown);
 document.addEventListener('mousedown', documentMouseDown);
 window.addEventListener('blur', windowBlurEvent);
 
 function render() {
+  console.log('Rendering');
+
   window.currentListIndex ??= 0;
   window.currentListIndex = Math.max(window.currentListIndex, 0);
   window.currentListIndex = Math.min(window.currentListIndex, window.state.lists.length - 1);
@@ -224,6 +227,7 @@ function renderPage(state) {
     pageEl.classList.add('debug-mode');
 
   pageEl.classList.add(mode);
+  pageEl.classList.add(window.syncStatus);
 
   pageEl.appendChild(renderNavigator(state));
   pageEl.appendChild(renderList(state.lists[window.currentListIndex]));
@@ -247,10 +251,14 @@ function renderNavigator(state) {
   const userPanelButtonsEl = userPanel.appendChild(document.createElement('div'))
   userPanelButtonsEl.classList.add('user-panel-buttons');
   if (mode === 'online') {
-    userStatusEl.innerHTML = `Hi, ${window.userInfo.name}`;
+    if (window.syncStatus !== 'sync-failure') {
+      userStatusEl.innerHTML = `Hi, ${window.userInfo.name}`;
+    } else {
+      userStatusEl.innerHTML = `Connection error`;
+    }
 
     const signOutButton = userPanelButtonsEl.appendChild(document.createElement('button'));
-    signOutButton.className = 'sign-up';
+    signOutButton.className = 'sign-out';
     signOutButton.textContent = 'Sign out';
     signOutButton.addEventListener('click', signOutClick);
   } else if (mode === 'web-local') {
@@ -1525,13 +1533,24 @@ function apiRequest(cmd, data) {
     req.open('post', 'api.php', true);
     req.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
     req.onload = () => {
-      if (req.status >= 200 && req.status < 300) {
-        console.log(`<- ${cmd}`);
-        resolve(JSON.parse(req.responseText));
-      } else {
+      try {
+        if (req.status >= 200 && req.status < 300) {
+          console.log(`<- ${cmd}`);
+          resolve(JSON.parse(req.responseText));
+        } else {
+          console.error(`x- ${cmd}`);
+          reject('API error');
+        }
+      } catch (e) {
+        console.error(e);
         console.error(`x- ${cmd}`);
         reject('API error');
       }
+    };
+    req.onerror = e => {
+      console.error(`x- ${cmd}`);
+      console.error(e);
+      reject('API error');
     };
     req.send(JSON.stringify({ cmd, data }));
   })
@@ -1685,6 +1704,7 @@ async function signOutClick() {
   delete window.userInfo;
   localStorage && localStorage.removeItem('user-info');
   localStorage && localStorage.removeItem('squirrel-away-online-state');
+  window.syncStatus = 'sync-pending';
   detectMode();
   await loadState();
   finishedUserInteraction();
@@ -2054,27 +2074,16 @@ function upgradeStateFormat(state) {
   return state;
 }
 
-async function syncWithServer(renderOnChange = true) {
+async function synchronize(renderOnChange = true) {
   if (mode !== 'online') return;
 
-  console.log('Synchronizing with server');
+  console.log('Synchronizing with localStorage');
   let state = window.state;
 
   // Synchronize with local storage first
+
   const local = parseState(localStorage.getItem('squirrel-away-online-state'));
   state = mergeStates(state, local);
-
-  // Try synchronize with the server if it's available
-  try {
-    const remote = upgradeStateFormat(await loadRemoteState());
-    state = mergeStates(state, remote);
-    if (!sameState(state, remote)) {
-      console.log('Pushing state to server');
-      await saveRemoteState(state);
-    }
-  } catch (e) {
-    console.error(e);
-  }
 
   if (!sameState(state, local)) {
     console.log('Pushing state to local storage');
@@ -2082,10 +2091,52 @@ async function syncWithServer(renderOnChange = true) {
   }
 
   if (!sameState(state, window.state)) {
-    console.log('Loading changes');
+    console.log('Loading changes from local storage');
     window.state = state;
     window.lastCommitTime = deserializeDate(state.time);
     if (renderOnChange) render();
+  }
+
+  if (!state) {
+    await syncWithServer();
+  } else {
+    // If we already have a state locally, we can afford not to block on the
+    // server request. Mainly this is intended to improve startup time because
+    // we can eagerly sync with localStorage first and then incorporate changes
+    // from the server when they're available.
+    syncWithServer();
+  }
+}
+
+async function syncWithServer() {
+  try {
+    console.log('Synchronizing with server');
+
+    const remote = upgradeStateFormat(await loadRemoteState());
+    const state = mergeStates(window.state, remote);
+    if (!sameState(state, remote)) {
+      console.log('Pushing state to server');
+      await saveRemoteState(state);
+    }
+
+    if (!sameState(state, window.state)) {
+      console.log('Rendering changes from server');
+      window.state = state;
+      window.lastCommitTime = deserializeDate(state.time);
+      window.syncStatus = 'sync-success';
+      render();
+    } else {
+      console.log('No changes from server');
+
+      if (window.syncStatus !== 'sync-success') {
+        window.syncStatus = 'sync-success';
+        render();
+      }
+    }
+  } catch (e) {
+    window.syncStatus = 'sync-failure';
+    console.error(e);
+    render();
   }
 }
 

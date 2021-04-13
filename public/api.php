@@ -23,11 +23,13 @@ if ($req['cmd'] == 'new-account') {
 }
 
 header('Content-Type: application/json');
+if (!$res['success'])
+  http_response_code(500);
 echo json_encode($res);
 mysqli_close($link);
 
 function logError($err) {
-  error_log($err);
+  // error_log($err);
   // echo $err;
 }
 
