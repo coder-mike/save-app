@@ -18,7 +18,7 @@ html {
 
 /* Version */
 .list::after {
-  content: '1.0.4';
+  content: '1.0.6';
   font-size: 0.7em;
   position: fixed;
   right: 25px;

@@ -63,14 +63,19 @@ window.loadState = async (renderOnChange) => {
 }
 
 window.addEventListener('load', async() => {
-  window.undoHistory = [];
-  window.undoIndex = -1; // Points to the current state
+  window.undoHistory = []; // List of action IDs available to undo
+  window.undoIndex = 0; // Points after the last entry in undoHistory
   window.debugMode = false;
   if (window.debugMode) window.state.time = serializeDate(Date.now());
 
   await window.loadState(false);
+
+  // It's useful here to reconstruct the state from the actions list. For one
+  // thing, if there are earlier bugs in the reducer that get fixed later,
+  // running the re-reducer at startup means we recompute the correct end state.
+  window.state = buildStateFromActions(window.state.id, window.state.actions);
+
   updateState();
-  pushUndoPoint();
   render();
 
   occasionallyRebuild();
@@ -100,32 +105,98 @@ function save() {
   }
 }
 
-function pushUndoPoint() {
-  window.undoIndex++;
-
-  // Any future history (for redo) becomes invalid at this point
-  if (window.undoHistory.length > window.undoIndex)
-    window.undoHistory = window.undoHistory.slice(0, window.undoIndex);
-
-  // The undo history needs to contain a *copy* of all the information in the
-  // current state. It's easiest to just serialize it and then we can
-  // deserialize IFF we need to undo
-  window.undoHistory[window.undoIndex] = {
-    currentListIndex: window.currentListIndex,
-    state: JSON.stringify(window.state)
-  }
-}
-
 function undo() {
+  /* I thought through many different ways of making undo/redo work, and none of
+   * them are simple. I wanted a solution with the following properties:
+   *
+   *   - It shouldn't require us to have an inverse of every possible action
+   *     (e.g. an inverse of `ItemRedistributeMoney` that somehow recollects the
+   *     money and puts it back). This mostly rules out a solution like `git
+   *     revert` that appends an opposite commit (action) to undo old commits.
+   *
+   *   - It needs to work well with synchronization. So this rules out just
+   *     "removing the undone actions", since those actions may have already
+   *     reached the server and other devices. Removing them would be like
+   *     removing git commits from a git history and would create a
+   *     synchronization conflict. The conflict resolution favors all actions
+   *     being present, so it will just add back the missing actions (as if
+   *     those actions had been performed on a different device), making the
+   *     undo ineffective.
+   *
+   *   - It needs to work with an arbitrary number of users observing the same
+   *     state (or single user on multiple devices). If user A performs actions
+   *     1, 3, and 5, and user B performs actions 2, 4, and 6, in an interleaved
+   *     fashion (with the synchronized result being 1,2,3,4,5,6), then if user
+   *     A hits "undo", it should only undo 5, and not 6. If they hit it again,
+   *     it should undo action 3. (and if they redo, it should add back action 3
+   *     followed by 5 as if they had never been undone)
+   *
+   *   - The solution also needs to work with an arbitrary number of undo/redo
+   *     cycles. I thought of just adding a flag like `undone`, and then when
+   *     merging states we can prioritize `undone` over not-undone, but this
+   *     breaks the redo. I also thought of having an "undo version" that
+   *     increments every time a user performs a meta-action (undoing or redoing
+   *     an action) but this sacrifices the immutability of the action stream.
+   *
+   *   - I'd like a solution that maintains the audit trail. If somebody injects
+   *     money into a list and then undoes the injection, this is equivalent to
+   *     injecting the opposite amount. It would be good to have a history of
+   *     this undoing rather than silently pretending that it never happened.
+   *     I'm thinking especially of multi-user scenarios and of diagnosing
+   *     issues.
+   *
+   * The solution I settled on is this:
+   *
+   * Undo and redo are actions that get appended to the action stream like any
+   * other action, for auditing and synchronization purposes. They reference the
+   * action being undone or redone (by ID).
+   *
+   * We define the behavior of an Undo action as producing a state that is
+   * equivalent to the state that would have been produced by the same action
+   * history but with the referenced action omitted.
+   *
+   * As with all other actions, the hash produced by an undo action must be
+   * computed from the hash of the previous action plus the hash of the undo
+   * itself. This means that the hash still includes both the original action
+   * and the undo, so both of these are real actions that occurred in the
+   * history. Doing it this way is important for fast-forward merging of states
+   * from different devices.
+   *
+   * In concrete implementation:
+   *
+   *   1. Every action the user performs calls `addUserAction` which appends the
+   *      action ID to the undoHistory list. Note that user actions can be
+   *      interleaved with actions from other devices/users so the undoHistory
+   *      does not necessarily contain all the actions.
+   *
+   *   2. When the user does ctrl+Z, we add an "Undo" action referencing the
+   *      last action in the undoHistory list.
+   *
+   *   3. Folding an Undo action (in `foldAction`) just recomputes the new state
+   *      by re-running the reducer over the state using
+   *      `buildStateFromActions`. If this becomes a performance bottleneck in
+   *      future, it's easy to add checkpointing so not the whole history needs
+   *      to be visited.
+   *
+   *   4. `buildStateFromActions` runs 2 passes. The first pass computes all the
+   *      actions to skip because they were "undone". The second pass reduces
+   *      over the non-undo actions using `foldAction`.
+   *
+   * Note that `foldAction` and `buildStateFromActions` are in some sense
+   * mutually recursive, but `buildStateFromActions` suppresses the effects of
+   * `Undo` actions in `foldAction` by running the initial pass. The naive
+   * implementation may have had exponential asymptotic performance (exponential
+   * to the number of undos in the history) since later undos need to
+   * recalculate the whole history before them, including earlier undos which
+   * calculate the whole history before *them*, etc. The double-pass instead
+   * gets this done in linear time.
+   */
+
   // Can't undo past the beginning
   if (window.undoIndex <= 0) return;
 
-  window.undoIndex--;
-
-  // Restore to the previous state
-  const { state, currentListIndex } = window.undoHistory[window.undoIndex];
-  window.state = JSON.parse(state);
-  window.currentListIndex = currentListIndex;
+  const actionIdToUndo = window.undoHistory[--window.undoIndex];
+  window.state = foldAction(window.state, { type: 'Undo', actionIdToUndo });
 
   updateState();
   save();
@@ -134,14 +205,11 @@ function undo() {
 
 function redo() {
   // Can't redo past the end
-  if (window.undoIndex >= window.undoHistory.length - 1) return;
-
-  window.undoIndex++;
+  if (window.undoIndex >= window.undoHistory.length) return;
 
   // Restore to the state
-  const { state, currentListIndex } = window.undoHistory[window.undoIndex];
-  window.state = JSON.parse(state);
-  window.currentListIndex = currentListIndex;
+  const actionIdToRedo = window.undoHistory[window.undoIndex++];
+  window.state = foldAction(window.state, { type: 'Redo', actionIdToRedo });
 
   updateState();
   save();
@@ -328,7 +396,7 @@ function renderList(list) {
   heading.classList.add('list-heading')
   makeEditable(heading, {
     read: () => list.name,
-    write: value => foldAction(window.state, { type: 'ListSetName', listId: list.id, newName: value })
+    write: value => addUserAction({ type: 'ListSetName', listId: list.id, newName: value })
   });
 
   // Header info section
@@ -344,7 +412,7 @@ function renderList(list) {
   allocatedAmountEl.classList.add('allocated-amount');
   makeEditable(allocatedAmountEl, {
     read: () => formatCurrency(list.budget.dollars),
-    write: v => foldAction(window.state, { type: 'ListSetBudget', listId: list.id, budget: { dollars: parseNonNegativeCurrency(v), unit: '/month' } })
+    write: v => addUserAction({ type: 'ListSetBudget', listId: list.id, budget: { dollars: parseNonNegativeCurrency(v), unit: '/month' } })
   });
 
   // Allocated Unit
@@ -470,7 +538,7 @@ function renderItem(item) {
   nameEl.classList.add('item-name');
   makeEditable(nameEl, {
     read: () => item.name,
-    write: name => foldAction(window.state, { type: 'ItemSetName', itemId: item.id, name }),
+    write: name => addUserAction({ type: 'ItemSetName', itemId: item.id, name }),
     requiresRender: false,
   });
 
@@ -497,7 +565,7 @@ function renderItem(item) {
   const priceEl = infoSectionEl.appendChild(document.createElement('span'));
   makeEditable(priceEl, {
     read: () => formatCurrency(item.price),
-    write: v => foldAction(window.state, {
+    write: v => addUserAction({
       type: 'ItemSetPrice',
       itemId: item.id,
       price: parseNonNegativeCurrency(v)
@@ -661,7 +729,6 @@ function formatCurrency(value, decimals = 2) {
 
 function finishedUserInteraction(requiresRender = true) {
   updateState();
-  pushUndoPoint();
   save();
   if (requiresRender) render();
 }
@@ -673,8 +740,9 @@ function updateState() {
   const toTime = Date.now();
 
   // Need at least one list to render
-  if (state.lists.length < 1)
-    foldAction(state, { type: 'ListNew', id: uuidv4(), name: 'Wish list' });
+  if (window.state.lists.length < 1) {
+    window.state = foldAction(window.state, { type: 'ListNew', id: uuidv4(), name: 'Wish list' });
+  }
 
   const { timeOfNextNonlinearity } = project(window.state, toTime);
 
@@ -818,7 +886,7 @@ function getAllocatedRate(budget) {
 function deleteItemClick(event) {
   const item = event.target.closest(".item").item;
 
-  foldAction(window.state, { type: 'ItemDelete', itemId: item.id });
+  addUserAction({ type: 'ItemDelete', itemId: item.id });
 
   finishedUserInteraction();
 }
@@ -827,7 +895,7 @@ function redistributeItemClick(event) {
 
   const item = event.target.closest(".item").item;
 
-  foldAction(window.state, {
+  addUserAction({
     type: 'ItemRedistributeMoney',
     itemId: item.id
   });
@@ -862,7 +930,7 @@ function editItemNoteClick(event) {
   noteInput.select();
 
   function apply() {
-    foldAction(window.state, {
+    addUserAction({
       type: 'ItemSetNote',
       itemId: item.id,
       note: noteInput.value
@@ -942,7 +1010,7 @@ function purchaseItemClick(event) {
   function apply() {
     const actualPrice = parseNonNegativeCurrency(actualPriceInput.value);
 
-    foldAction(window.state, {
+    addUserAction({
       type: 'ItemPurchase',
       itemId: item.id,
       actualPrice
@@ -990,7 +1058,7 @@ function hideDialog() {
 
 function addItemClick(event) {
   const list = event.target.closest(".list").list;
-  foldAction(window.state, { type: 'ItemNew', listId: list.id });
+  addUserAction({ type: 'ItemNew', listId: list.id });
 
   finishedUserInteraction();
 
@@ -1139,7 +1207,7 @@ function newListClick() {
   while (window.state.lists.some(l => l.name === name))
     name = `Wish list ${++counter}`;
 
-  foldAction(window.state, { type: 'ListNew', name });
+  addUserAction({ type: 'ListNew', name });
 
   window.currentListIndex = window.state.lists.length - 1;
 
@@ -1230,7 +1298,7 @@ function itemDrop(event) {
   const list = event.target.closest('.list').list;
   const targetItem = event.target.item ?? event.target.closest('.item').item;
 
-  foldAction(window.state, {
+  addUserAction({
     type: 'ItemMove',
     itemId: sourceItem.id,
     targetListId: list.id,
@@ -1375,7 +1443,7 @@ function toggleMenu(menu) {
 function deleteListClick(event) {
   const list = event.target.closest('.list').list;
 
-  foldAction(window.state, { type: 'ListDelete', listId: list.id })
+  addUserAction({ type: 'ListDelete', listId: list.id })
   window.currentListIndex--;
 
   finishedUserInteraction();
@@ -1424,7 +1492,7 @@ function injectMoneyClick(event) {
   function apply() {
     const amount = parseCurrency(amountInput.value);
 
-    foldAction(window.state, { type: 'ListInjectMoney', listId: list.id, amount });
+    addUserAction({ type: 'ListInjectMoney', listId: list.id, amount });
 
     finishedUserInteraction();
   }
@@ -1647,8 +1715,20 @@ function uuidv4() {
   );
 }
 
-// Mutates `state` to include the effect of the given action
-function foldAction(state, action) {
+// Folds the action into the state and records it in the undo history
+function addUserAction(action) {
+  window.state = foldAction(window.state, action);
+
+  window.undoHistory[window.undoIndex++] = action.id;
+  // Any future history (for redo) becomes invalid at this point
+  if (window.undoHistory.length > window.undoIndex)
+    window.undoHistory = window.undoHistory.slice(0, window.undoIndex);
+}
+
+// Mutates `state` to include the effect of the given action, unless
+// `skipEffect` is true, in which case the hash will be updated but no effect on
+// the state lists.
+function foldAction(state, action, skipEffect) {
   action.id ??= uuidv4();
   action.time ??= serializeDate(Date.now());
   const time = deserializeDate(action.time);
@@ -1671,11 +1751,15 @@ function foldAction(state, action) {
 
   state.actions.push(action);
 
-  const findList = id => state.lists.find(l => l.id == id);
+    if (skipEffect) {
+    return state;
+  }
+
+  const findList = id => state.lists.find(l => l.id === id);
   const findItem = id => {
     for (const list of state.lists)
       for (const item of list.items)
-        if (item.id == id) return { list, item };
+        if (item.id === id) return { list, item };
   }
 
   switch (action.type) {
@@ -1696,7 +1780,7 @@ function foldAction(state, action) {
       break;
     }
     case 'ListDelete': {
-      const index = state.lists.findIndex(list => list.id = action.listId);
+      const index = state.lists.findIndex(list => list.id === action.listId);
       if (index != -1) state.lists.splice(index, 1);
       break;
     }
@@ -1798,6 +1882,15 @@ function foldAction(state, action) {
       item.saved.value = 0;
       break;
     }
+    case 'Undo': {
+      // To go back in time to undo the action, the easiest is to just
+      // rebuild the state from scratch including the current undo action.
+      return buildStateFromActions(state.id, state.actions);
+    }
+    case 'Redo': {
+      // As with 'Undo'
+      return buildStateFromActions(state.id, state.actions);
+    }
   }
 
   // Run another projection just to update any side effects of the action. For
@@ -1810,10 +1903,27 @@ function foldAction(state, action) {
 // https://stackoverflow.com/a/33486055
 function md5Hash(d){var r = M(V(Y(X(d),8*d.length)));return r.toLowerCase()};function M(d){for(var _,m="0123456789ABCDEF",f="",r=0;r<d.length;r++)_=d.charCodeAt(r),f+=m.charAt(_>>>4&15)+m.charAt(15&_);return f}function X(d){for(var _=Array(d.length>>2),m=0;m<_.length;m++)_[m]=0;for(m=0;m<8*d.length;m+=8)_[m>>5]|=(255&d.charCodeAt(m/8))<<m%32;return _}function V(d){for(var _="",m=0;m<32*d.length;m+=8)_+=String.fromCharCode(d[m>>5]>>>m%32&255);return _}function Y(d,_){d[_>>5]|=128<<_%32,d[14+(_+64>>>9<<4)]=_;for(var m=1732584193,f=-271733879,r=-1732584194,i=271733878,n=0;n<d.length;n+=16){var h=m,t=f,g=r,e=i;f=md5_ii(f=md5_ii(f=md5_ii(f=md5_ii(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_ff(f=md5_ff(f=md5_ff(f=md5_ff(f,r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+0],7,-680876936),f,r,d[n+1],12,-389564586),m,f,d[n+2],17,606105819),i,m,d[n+3],22,-1044525330),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+4],7,-176418897),f,r,d[n+5],12,1200080426),m,f,d[n+6],17,-1473231341),i,m,d[n+7],22,-45705983),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+8],7,1770035416),f,r,d[n+9],12,-1958414417),m,f,d[n+10],17,-42063),i,m,d[n+11],22,-1990404162),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+12],7,1804603682),f,r,d[n+13],12,-40341101),m,f,d[n+14],17,-1502002290),i,m,d[n+15],22,1236535329),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+1],5,-165796510),f,r,d[n+6],9,-1069501632),m,f,d[n+11],14,643717713),i,m,d[n+0],20,-373897302),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+5],5,-701558691),f,r,d[n+10],9,38016083),m,f,d[n+15],14,-660478335),i,m,d[n+4],20,-405537848),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+9],5,568446438),f,r,d[n+14],9,-1019803690),m,f,d[n+3],14,-187363961),i,m,d[n+8],20,1163531501),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+13],5,-1444681467),f,r,d[n+2],9,-51403784),m,f,d[n+7],14,1735328473),i,m,d[n+12],20,-1926607734),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+5],4,-378558),f,r,d[n+8],11,-2022574463),m,f,d[n+11],16,1839030562),i,m,d[n+14],23,-35309556),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+1],4,-1530992060),f,r,d[n+4],11,1272893353),m,f,d[n+7],16,-155497632),i,m,d[n+10],23,-1094730640),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+13],4,681279174),f,r,d[n+0],11,-358537222),m,f,d[n+3],16,-722521979),i,m,d[n+6],23,76029189),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+9],4,-640364487),f,r,d[n+12],11,-421815835),m,f,d[n+15],16,530742520),i,m,d[n+2],23,-995338651),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+0],6,-198630844),f,r,d[n+7],10,1126891415),m,f,d[n+14],15,-1416354905),i,m,d[n+5],21,-57434055),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+12],6,1700485571),f,r,d[n+3],10,-1894986606),m,f,d[n+10],15,-1051523),i,m,d[n+1],21,-2054922799),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+8],6,1873313359),f,r,d[n+15],10,-30611744),m,f,d[n+6],15,-1560198380),i,m,d[n+13],21,1309151649),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+4],6,-145523070),f,r,d[n+11],10,-1120210379),m,f,d[n+2],15,718787259),i,m,d[n+9],21,-343485551),m=safe_add(m,h),f=safe_add(f,t),r=safe_add(r,g),i=safe_add(i,e)}return Array(m,f,r,i)}function md5_cmn(d,_,m,f,r,i){return safe_add(bit_rol(safe_add(safe_add(_,d),safe_add(f,i)),r),m)}function md5_ff(d,_,m,f,r,i,n){return md5_cmn(_&m|~_&f,d,_,r,i,n)}function md5_gg(d,_,m,f,r,i,n){return md5_cmn(_&f|m&~f,d,_,r,i,n)}function md5_hh(d,_,m,f,r,i,n){return md5_cmn(_^m^f,d,_,r,i,n)}function md5_ii(d,_,m,f,r,i,n){return md5_cmn(m^(_|~f),d,_,r,i,n)}function safe_add(d,_){var m=(65535&d)+(65535&_);return(d>>16)+(_>>16)+(m>>16)<<16|65535&m}function bit_rol(d,_){return d<<_|d>>>32-_}
 
-function rebuildStateFromActions(id, actions) {
-  const newState = actions.reduce(foldAction, { ...emptyState(), id });
-  window.lastCommitTime = deserializeDate(newState.time);
-  return newState;
+// Build a new State from the given list of actions
+function buildStateFromActions(id, actions) {
+  // We run a first look-ahead pass to tally all the undo/redo actions to see
+  // which actions should not take be taken into effect.
+  const skip = new Set();
+  for (const action of actions) {
+    if (action.type === 'Undo') {
+      console.assert(!skip.has(action.actionIdToUndo));
+      // The Undo action and the action being undone cancel each other out so we skip them both
+      skip.add(action.id);
+      skip.add(action.actionIdToUndo);
+    } else if (action.type === 'Redo') {
+      console.assert(skip.has(action.actionIdToRedo));
+      skip.add(action.id);
+      skip.delete(action.actionIdToRedo);
+    }
+  }
+
+  return actions.reduce(
+    (state, action) => foldAction(state, action, skip.has(action.id)),
+    { ...emptyState(), id });
 }
 
 function emptyState() {
@@ -1840,7 +1950,9 @@ function occasionallyRebuild() {
     // rather than later if there's a problem building state from the actions.
     if (!window.dialogBackgroundEl && !window.isEditing && window.state.actions) {
       console.log('Rebuilding the list state from the actions')
-      window.state = rebuildStateFromActions(window.state.id, window.state.actions);
+      window.state = buildStateFromActions(window.state.id, window.state.actions);
+      window.lastCommitTime = deserializeDate(newState.time);
+
       render();
     }
   }, 60_000);
@@ -1932,8 +2044,7 @@ function upgradeStateFormat(state) {
         }))
       }))
     };
-    Object.assign(state, emptyState());
-    foldAction(state, {
+    return foldAction(emptyState(), {
       type: 'MigrateState',
       id,
       time,
