@@ -1971,7 +1971,7 @@ function occasionallyRebuild() {
     if (!window.dialogBackgroundEl && !window.isEditing && window.state.actions) {
       console.log('Rebuilding the list state from the actions')
       window.state = buildStateFromActions(window.state.id, window.state.actions);
-      window.lastCommitTime = deserializeDate(newState.time);
+      window.lastCommitTime = deserializeDate(window.state.time);
 
       render();
     }
