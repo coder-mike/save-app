@@ -2,3 +2,4 @@ node_modules
 *.json.backup
 .vscode/bookmarks.json
 state.json
+public/analytics-tag.js
