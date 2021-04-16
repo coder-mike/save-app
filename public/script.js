@@ -79,7 +79,7 @@ window.addEventListener('load', async() => {
   updateState();
   render();
 
-  occasionallyRebuild();
+  // occasionallyRebuild();
 });
 
 window.addEventListener('focus', synchronize);

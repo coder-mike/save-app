@@ -507,6 +507,7 @@ svg.squirrel-graphic {
   background-color: #eee;
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 
 .item.afforded .item-inner {
@@ -581,18 +582,16 @@ svg.squirrel-graphic {
 .name-section {
   flex-basis: 0;
   flex-grow: 1;
-  max-width: 40%;
+  min-width: 0;
 }
 
 .item-name {
   font-size: 1.0em;
-  display: inline-block;
-}
-
-@media all and (max-width: 900px) {
-  .name-section {
-    max-width: none;
-  }
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* ------------------------ Item.Note --------------------- */
@@ -603,7 +602,6 @@ svg.squirrel-graphic {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
   margin-left: 6px;
   font-size: 0.8em;
 }
