@@ -837,23 +837,24 @@ input.invalid {
 
 .history-item .item-inner {
   background-color: #ddd;
-  /* border: 2px solid #eee; */
   height: 50px;
   padding: 15px 34px;
+  display: flex;
 }
 
-.history-item .price {
-  position: absolute;
-  top: 15px;
-  right: 45px;
+.history-item .item-name {
+  flex: 1 1 auto;
 }
 
 .history-item .smiley {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  opacity: 0.5;
+  opacity: 0.4;
+  margin: 10px;
+}
+
+.history-item .price {
+  flex: 0 0 auto;
+  min-width: 100px;
+  text-align: right;
 }
 
 .smiley circle.head {
@@ -867,7 +868,6 @@ input.invalid {
   stroke-width: 1.5px;
   fill: none;
   stroke-linejoin: round;
-  /* fill: black; */
 }
 
 @media all and (max-width: 900px) {
