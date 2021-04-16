@@ -608,6 +608,14 @@ svg.squirrel-graphic {
 
 /* ------------------------ Item.Saved --------------------- */
 
+.item .saved-section {
+  display: none;
+}
+
+.item.partial-progress .saved-section {
+  display: block;
+}
+
 .item .saved {
   position: relative;
   opacity: 0;
@@ -651,8 +659,7 @@ svg.squirrel-graphic {
 /* ------------------------ Item.Info --------------------- */
 
 .item .info-section {
-  flex-grow: 1;
-  flex-basis: 0;
+  flex: 0 0 auto; /* let name section expand */
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -660,8 +667,12 @@ svg.squirrel-graphic {
   padding-right: 10px;
 }
 
+.item.partial-progress .info-section {
+  flex: 1 0 0; /* match size of name section so that saved amount is centered */
+}
+
 @media all and (max-width: 900px) {
-  .item .info-section {
+  .item .info-section, .item.partial-progress .info-section {
     flex: 0 0 auto;
   }
 }
