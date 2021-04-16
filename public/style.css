@@ -1011,3 +1011,10 @@ button {
 button:hover {
   background-color: rgba(0,0,0,0.07);
 }
+
+input:focus, textarea:focus, [contenteditable]:focus {
+  /* When editing text, we can't have it show the ellipsis */
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
