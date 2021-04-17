@@ -3,3 +3,5 @@ node_modules
 .vscode/bookmarks.json
 state.json
 public/analytics-tag.js
+public/script.js
+public/script.js.map

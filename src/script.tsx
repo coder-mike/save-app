@@ -2,6 +2,40 @@
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
+type Timestamp = number;
+type List = any;
+type Item = any;
+
+interface Window {
+  userInfo: any;
+  saveState: any;
+  loadState: any;
+
+  debugMode: boolean;
+  state: any;
+  nextNonlinearity: Timestamp;
+  lastCommitTime: Timestamp;
+  currentListIndex: number;
+  syncStatus: 'sync-pending' | 'sync-failure' | 'sync-success';
+  nextNonLinearityTimer: any;
+  dialogBackgroundEl: HTMLElement;
+  draggingItem: any;
+  idCounter: any;
+  showingMenu: HTMLElement;
+  listScrollPosition: number;
+
+  undoHistory: any[];
+  undoIndex: number;
+
+  isEditing: boolean;
+  elementBeingEdited: HTMLElement;
+  editingTimeout: any;
+}
+
+declare const require: any;
+
+const domDataAttachments = new WeakMap<HTMLElement, List | Item>();
+
 const userInfoStorage = localStorage && localStorage.getItem('user-info');
 if (userInfoStorage) window.userInfo = JSON.parse(userInfoStorage);
 
@@ -82,7 +116,7 @@ window.addEventListener('load', async() => {
   // occasionallyRebuild();
 });
 
-window.addEventListener('focus', synchronize);
+window.addEventListener('focus', () => synchronize());
 
 document.addEventListener('keydown', documentKeyDown);
 document.addEventListener('mousedown', documentMouseDown);
@@ -96,7 +130,8 @@ function render() {
   window.currentListIndex = Math.min(window.currentListIndex, window.state.lists.length - 1);
 
   saveScrollPosition();
-  document.body.replaceChildren(renderPage(window.state))
+  document.body.innerHTML = '';
+  document.body.appendChild(renderPage(window.state));
   restoreScrollPosition();
 }
 
@@ -285,7 +320,7 @@ function renderNavigator(state) {
     const listHasReadyItems = list.items.some(item => item.saved.value && item.saved.value >= item.price);
 
     const itemEl = listListEl.appendChild(document.createElement('li'));
-    itemEl.list = list;
+    domDataAttachments.set(itemEl, list);
     itemEl.classList.add('nav-item');
     if (listHasReadyItems) itemEl.classList.add('has-ready-items');
     if (i === window.currentListIndex) itemEl.classList.add('active');
@@ -307,7 +342,7 @@ function renderNavigator(state) {
   }
 
   const newListButtonContainer = listsSection.appendChild(document.createElement('div'));
-  newListButtonContainer.classList = 'button-new-container';
+  newListButtonContainer.className = 'button-new-container';
 
   const newListButton = newListButtonContainer.appendChild(document.createElement('button'));
   newListButton.classList.add('button-new', 'svg-button');
@@ -378,7 +413,7 @@ function renderCurrency(amount, decimals = 2) {
 function renderList(list) {
   const listEl = document.createElement('div');
   listEl.id = 'current-list';
-  listEl.list = list;
+  domDataAttachments.set(listEl, list);
   listEl.classList.add('list');
 
   const stickyEl = listEl.appendChild(document.createElement('div'));
@@ -509,8 +544,7 @@ function createListMenu() {
 
 function renderItem(item) {
   const itemEl = document.createElement('li');
-
-  itemEl.item = item;
+  domDataAttachments.set(itemEl, item);
   itemEl.classList.add('item');
   if (item.purchased)
     itemEl.classList.add('purchased')
@@ -640,7 +674,7 @@ function createItemMenu(item) {
 function renderHistoryItem(item) {
   const historyItemEl = document.createElement('li');
 
-  historyItemEl.item = item;
+  domDataAttachments.set(historyItemEl, item);
   historyItemEl.classList.add('history-item');
 
   const historyItemInnerEl = historyItemEl.appendChild(document.createElement('div'));
@@ -689,7 +723,7 @@ function renderAmount(amount) {
     // Check if element is removed
     if (executingFromTimer && !document.getElementById(amountSpan.id))
       return clearInterval(timer);
-    const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
+    const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - window.lastCommitTime);
     const s = value.toFixed(4)
     mainAmount.textContent = s.slice(0, s.length - 2);
     subCents.textContent = s.slice(-2);
@@ -714,7 +748,7 @@ function createItemBackground(item, itemEl) {
       //if (window.isEditing) return;
       if (!synchronous && !document.getElementById(itemEl.id))
         return clearInterval(timer);
-      const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - lastCommitTime);
+      const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - window.lastCommitTime);
       const percent = (value / item.price) * 100;
       const color1 = amount.rate ? '#afd9ea' : '#dddddd';
       const color2 = amount.rate ? '#e1ecf1' : '#eaeaea';
@@ -754,7 +788,6 @@ function updateState() {
 
   const { timeOfNextNonlinearity } = project(window.state, toTime);
 
-  window.state = state;
   window.nextNonlinearity = timeOfNextNonlinearity;
   window.lastCommitTime = toTime;
 
@@ -773,7 +806,7 @@ function updateState() {
         return;
       }
       console.log('Updating at nonlinearity', formatDate(Date.now()))
-      updateState(window.state);
+      updateState();
       render();
     }, timeoutPeriod)
   }
@@ -892,7 +925,7 @@ function getAllocatedRate(budget) {
 }
 
 function deleteItemClick(event) {
-  const item = event.target.closest(".item").item;
+  const item = domDataAttachments.get(event.target.closest(".item"));
 
   addUserAction({ type: 'ItemDelete', itemId: item.id });
 
@@ -901,7 +934,7 @@ function deleteItemClick(event) {
 
 function redistributeItemClick(event) {
 
-  const item = event.target.closest(".item").item;
+  const item = domDataAttachments.get(event.target.closest(".item"));
 
   addUserAction({
     type: 'ItemRedistributeMoney',
@@ -914,7 +947,7 @@ function redistributeItemClick(event) {
 function editItemNoteClick(event) {
   updateState();
 
-  const item = event.target.closest(".item").item;
+  const item = domDataAttachments.get(event.target.closest(".item"));
 
   const dialogContentEl = document.createElement('div');
   dialogContentEl.classList.add('edit-note-dialog');
@@ -953,8 +986,8 @@ function purchaseItemClick(event) {
 
   updateState();
 
-  const item = event.target.closest(".item").item;
-  const list = event.target.closest(".list").list;
+  const item = domDataAttachments.get(event.target.closest(".item"));
+  const list = domDataAttachments.get(event.target.closest(".list"));
 
   const dialogContentEl = document.createElement('div');
   dialogContentEl.classList.add('purchase-dialog');
@@ -1033,8 +1066,8 @@ function showDialog(title, content, buttons) {
   hideDialog();
 
   window.dialogBackgroundEl = document.body.appendChild(document.createElement('div'));
-  dialogBackgroundEl.classList.add('dialog-background');
-  dialogBackgroundEl.addEventListener('mousedown', hideDialog);
+  window.dialogBackgroundEl.classList.add('dialog-background');
+  window.dialogBackgroundEl.addEventListener('mousedown', hideDialog);
 
   const dialogEl = window.dialogBackgroundEl.appendChild(document.createElement('div'));
   dialogEl.classList.add('dialog');
@@ -1065,7 +1098,7 @@ function hideDialog() {
 }
 
 function addItemClick(event) {
-  const list = event.target.closest(".list").list;
+  const list = domDataAttachments.get(event.target.closest(".list"));
   addUserAction({ type: 'ItemNew', listId: list.id });
 
   finishedUserInteraction();
@@ -1132,7 +1165,7 @@ function windowBlurEvent() {
   hideMenu();
 }
 
-function makeEditable(el, { read, write, requiresRender }) {
+function makeEditable(el, { read, write, requiresRender = false }) {
   requiresRender ??= true;
   console.assert(read);
   console.assert(write);
@@ -1144,7 +1177,7 @@ function makeEditable(el, { read, write, requiresRender }) {
   el.textContent = read();
 
   function focus() {
-    beginEdit();
+    beginEdit(el);
     el.textContent = read();
     setTimeout(() => {
       selectAllInContentEditable(el);
@@ -1174,7 +1207,7 @@ function makeEditable(el, { read, write, requiresRender }) {
 }
 
 function navListItemClick(event) {
-  const list = event.target.list ?? event.target.closest(".nav-item").list;
+  const list = domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest(".nav-item"));
 
   const index = window.state.lists.indexOf(list);
   window.currentListIndex = index;
@@ -1242,12 +1275,12 @@ function createPlusSvg() {
   const svg = document.createElementNS(ns, 'svg');
   svg.classList.add('plus-svg');
   svg.setAttribute('viewBox', `${-r - margin} ${-r - margin} ${w} ${w}`);
-  svg.setAttribute('width', w);
-  svg.setAttribute('height', w);
+  svg.setAttribute('width', w.toString());
+  svg.setAttribute('height', w.toString());
   svg.style.display = 'block';
 
   const circle = svg.appendChild(document.createElementNS(ns, 'circle'));
-  circle.setAttribute('r', r);
+  circle.setAttribute('r', r.toString());
 
   const plus = svg.appendChild(document.createElementNS(ns, 'path'));
   const s = r/2;
@@ -1257,7 +1290,7 @@ function createPlusSvg() {
 }
 
 function itemDrag(event) {
-  const item = event.target.item ?? event.target.closest('.item').item;
+  const item = domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest('.item'));
   window.draggingItem = item;
   event.dataTransfer.dropEffect = 'move';
 }
@@ -1273,7 +1306,7 @@ function itemDragEnd(event) {
 function itemDragEnter(event) {
   if (!window.draggingItem) return;
   const itemEl = getItemElAtNode(event.target);
-  if (itemEl.item === window.draggingItem) return;
+  if (domDataAttachments.get(itemEl) === window.draggingItem) return;
   itemEl.dragOverCount = (itemEl.dragOverCount ?? 0) + 1;
   if (itemEl.dragOverCount)
     itemEl.classList.add('item-drag-over');
@@ -1282,7 +1315,7 @@ function itemDragEnter(event) {
 function itemDragLeave(event) {
   if (!window.draggingItem) return;
   const itemEl = getItemElAtNode(event.target);
-  if (itemEl.item === window.draggingItem) return;
+  if (domDataAttachments.get(itemEl) === window.draggingItem) return;
   itemEl.dragOverCount = (itemEl.dragOverCount ?? 0) - 1;
   if (!itemEl.dragOverCount)
     itemEl.classList.remove('item-drag-over');
@@ -1303,8 +1336,8 @@ function itemDrop(event) {
 
   event.dataTransfer.dropEffect = 'move';
 
-  const list = event.target.closest('.list').list;
-  const targetItem = event.target.item ?? event.target.closest('.item').item;
+  const list = domDataAttachments.get(event.target.closest('.list'));
+  const targetItem = domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest('.item'));
 
   addUserAction({
     type: 'ItemMove',
@@ -1317,7 +1350,7 @@ function itemDrop(event) {
 }
 
 function getItemElAtNode(node) {
-  if (node.item) return node;
+  if (domDataAttachments.get(node)) return node;
   return node.closest('.item');
 }
 
@@ -1329,25 +1362,25 @@ function createSmileySvg() {
   const svg = document.createElementNS(svgNS, 'svg');
   svg.classList.add('smiley');
   svg.setAttribute('viewBox', `${-r - margin} ${-r - margin} ${w} ${w}`);
-  svg.setAttribute('width', w);
-  svg.setAttribute('height', w);
+  svg.setAttribute('width', w.toString());
+  svg.setAttribute('height', w.toString());
   // svg.style.display = 'block';
 
   const circle = svg.appendChild(document.createElementNS(svgNS, 'circle'));
   circle.classList.add('head');
-  circle.setAttribute('r', r);
+  circle.setAttribute('r', r.toString());
 
   const leftEye = svg.appendChild(document.createElementNS(svgNS, 'circle'));
   leftEye.classList.add('eye');
-  leftEye.setAttribute('r', 2);
-  leftEye.setAttribute('cx', -4.5);
-  leftEye.setAttribute('cy', -5);
+  leftEye.setAttribute('r', (2).toString());
+  leftEye.setAttribute('cx', (-4.5).toString());
+  leftEye.setAttribute('cy', (-5).toString());
 
   const rightEye = svg.appendChild(document.createElementNS(svgNS, 'circle'));
   rightEye.classList.add('eye');
-  rightEye.setAttribute('r', 2);
-  rightEye.setAttribute('cx', 4.5);
-  rightEye.setAttribute('cy', -5);
+  rightEye.setAttribute('r', (2).toString());
+  rightEye.setAttribute('cx', (4.5).toString());
+  rightEye.setAttribute('cy', (-5).toString());
 
   const mouth = svg.appendChild(document.createElementNS(svgNS, 'path'));
   mouth.classList.add('mouth');
@@ -1366,12 +1399,12 @@ function createReadyIndicatorSvg() {
   const svg = document.createElementNS(svgNS, 'svg');
   svg.classList.add('smiley');
   svg.setAttribute('viewBox', `${-r - margin} ${-r - margin} ${w} ${w}`);
-  svg.setAttribute('width', w);
-  svg.setAttribute('height', w);
+  svg.setAttribute('width', w.toString());
+  svg.setAttribute('height', w.toString());
   svg.style.display = 'block';
 
   const circle = svg.appendChild(document.createElementNS(svgNS, 'circle'));
-  circle.setAttribute('r', r);
+  circle.setAttribute('r', r.toString());
 
   return svg;
 }
@@ -1391,14 +1424,14 @@ function createMenuButtonSvg() {
   const svg = document.createElementNS(svgNS, 'svg');
   svg.classList.add('menu-glyph');
   svg.setAttribute('viewBox', `${-w/2} ${-h/2} ${w} ${h}`);
-  svg.setAttribute('width', w);
-  svg.setAttribute('height', h);
+  svg.setAttribute('width', w.toString());
+  svg.setAttribute('height', h.toString());
   svg.style.display = 'block';
 
   for (let i = -1; i <= 1; i++) {
     const circle = svg.appendChild(document.createElementNS(svgNS, 'circle'));
-    circle.setAttribute('cy', i * pitch);
-    circle.setAttribute('r', r);
+    circle.setAttribute('cy', (i * pitch).toString());
+    circle.setAttribute('r', r.toString());
   }
 
   return svg;
@@ -1449,7 +1482,7 @@ function toggleMenu(menu) {
 }
 
 function deleteListClick(event) {
-  const list = event.target.closest('.list').list;
+  const list = domDataAttachments.get(event.target.closest('.list'));
 
   addUserAction({ type: 'ListDelete', listId: list.id })
   window.currentListIndex--;
@@ -1462,7 +1495,7 @@ function injectMoneyClick(event) {
 
   updateState();
 
-  const list = event.target.closest('.list').list;
+  const list = domDataAttachments.get(event.target.closest('.list'));
 
   const dialogContentEl = document.createElement('div');
 
@@ -1512,7 +1545,7 @@ function documentMouseDown() {
 
 function hideMenu() {
   if (window.showingMenu) {
-    const menuBody = window.showingMenu.getElementsByClassName('menu-body')[0];
+    const menuBody = window.showingMenu.getElementsByClassName('menu-body')[0] as HTMLElement;
     menuBody.style.display = 'none';
     window.showingMenu = undefined;
   }
@@ -1526,7 +1559,7 @@ function convertUrlsToLinks(text) {
   });
 }
 
-function apiRequest(cmd, data) {
+function apiRequest(cmd, data): Promise<any> {
   return new Promise((resolve, reject) => {
     console.log(`-> ${cmd}`);
     const req = new XMLHttpRequest();
@@ -1581,7 +1614,7 @@ function signInClick() {
   userPasswordEl.value = '';
 
   const errorNotice = dialogContentEl.appendChild(document.createElement('div'));
-  errorNotice.classList = 'login-error';
+  errorNotice.className = 'login-error';
 
   userPasswordEl.addEventListener('keyup', e => e.code === 'Enter' && apply());
 
@@ -1651,7 +1684,7 @@ function signUpClick() {
   userPasswordEl.value = '';
 
   const errorNotice = dialogContentEl.appendChild(document.createElement('div'));
-  errorNotice.classList = 'login-error';
+  errorNotice.className = 'login-error';
 
   userPasswordEl.addEventListener('keyup', e => e.code === 'Enter' && apply());
 
@@ -1706,7 +1739,7 @@ async function signOutClick() {
   localStorage && localStorage.removeItem('squirrel-away-online-state');
   window.syncStatus = 'sync-pending';
   detectMode();
-  await loadState();
+  await window.loadState();
   finishedUserInteraction();
 }
 
@@ -1725,12 +1758,12 @@ function restoreScrollPosition() {
 
 function selectAllInContentEditable(el) {
   el.focus();
-  //document.execCommand('selectAll', false, null);
+  // document.execCommand('selectAll', false, null);
 }
 
 // https://stackoverflow.com/a/2117523
 function uuidv4() {
-  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+  return (([1e7] as any)+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
     (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
   );
 }
@@ -1748,7 +1781,7 @@ function addUserAction(action) {
 // Mutates `state` to include the effect of the given action, unless
 // `skipEffect` is true, in which case the hash will be updated but no effect on
 // the state lists.
-function foldAction(state, action, skipEffect) {
+function foldAction(state, action, skipEffect = false) {
   action.id ??= uuidv4();
   action.time ??= serializeDate(Date.now());
   const time = deserializeDate(action.time);
@@ -2171,17 +2204,17 @@ function createMobileNavMenuButtonSvg() {
   const svg = document.createElementNS(svgNS, 'svg');
   svg.classList.add('nav-menu-glyph');
   svg.setAttribute('viewBox', `${-w/2} ${-h/2} ${w} ${h}`);
-  svg.setAttribute('width', w);
-  svg.setAttribute('height', h);
+  svg.setAttribute('width', w.toString());
+  svg.setAttribute('height', h.toString());
   svg.style.display = 'block';
 
   for (let i = -1; i <= 1; i++) {
     const line = svg.appendChild(document.createElementNS(svgNS, 'line'));
-    line.setAttribute('x1', -w/2 + margin);
-    line.setAttribute('x2', +w/2 - margin);
-    line.setAttribute('y1', i * pitch);
-    line.setAttribute('y2', i * pitch);
-    line.setAttribute('stroke-width', thickness);
+    line.setAttribute('x1', (-w/2 + margin).toString());
+    line.setAttribute('x2', (+w/2 - margin).toString());
+    line.setAttribute('y1', (i * pitch).toString());
+    line.setAttribute('y2', (i * pitch).toString());
+    line.setAttribute('stroke-width', thickness.toString());
   }
 
   return svg;
@@ -2195,8 +2228,8 @@ function renderSquirrelGraphic() {
   const svg = document.createElementNS(svgNS, 'svg');
   svg.classList.add('squirrel-graphic');
   svg.setAttribute('viewBox', `${internalX} ${internalY} ${internalSize} ${internalSize}`);
-  svg.setAttribute('width', 50);
-  svg.setAttribute('height', 50);
+  svg.setAttribute('width', (50).toString());
+  svg.setAttribute('height', (50).toString());
   svg.style.display = 'block';
 
   const path = svg.appendChild(document.createElementNS(svgNS, 'path'));
