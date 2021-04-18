@@ -1,4 +1,4 @@
-'use strict';
+import produce from "immer"
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
@@ -14,21 +14,30 @@ type StateId = Uuid;
 type ListId = Uuid;
 type ItemId = Uuid;
 
-interface State {
+// The `State` type is the core type, which is currently the object (the only
+// object) that's saved to the server.
+//
+// It holds the two pieces: the snapshot and the history. The history, in terms
+// of the "event-sourced" model, is the full set of immutable actions that led
+// up to the final state. The "Snapshot" is the result of reducing over the
+// history.
+type State = StateSnapshot & StateHistory & {
   id: StateId;
-  time: ISO8601Timestamp;
-  nextNonlinearity: ISO8601Timestamp;
-  // List of "event-sourced" events, here-named actions. This is an append-only
-  // list, and individual actions will never be mutated.
-  actions: Action[];
-  lists: List[];
   hash: Md5Hash;
 }
 
-type InitialState = Omit<State, 'id' | 'time' | 'nextNonlinearity'>;
-
 // The non-event-sourced part of the state
-type StateSnapshot = Omit<State, 'actions' | 'hash' | 'nextNonlinearity'>;
+interface StateSnapshot {
+  lists: List[];
+  time: ISO8601Timestamp;
+  nextNonlinearity: ISO8601Timestamp;
+}
+
+interface StateHistory {
+  // List of "event-sourced" events, here-named actions. This is an append-only
+  // list, and individual actions will never be mutated.
+  actions: Action[];
+}
 
 interface List {
   id: ListId;
@@ -151,8 +160,9 @@ interface Global {
   isEditing: boolean;
   elementBeingEdited: HTMLElement;
   editingTimeout: any;
-
 }
+
+const emptyHash = md5Hash('');
 
 // These used to all be on the Window object, but I decided to put them into
 // another object because in TypeScript I found it difficult to merge globals
@@ -362,7 +372,7 @@ function undo() {
   if (g.undoIndex <= 0) return;
 
   const actionIdToUndo = g.undoHistory[--g.undoIndex];
-  g.state = foldAction(g.state, { type: 'Undo', actionIdToUndo });
+  g.state = foldNewAction(g.state, { type: 'Undo', actionIdToUndo });
 
   updateState();
   save();
@@ -375,14 +385,14 @@ function redo() {
 
   // Restore to the state
   const actionIdToRedo = g.undoHistory[g.undoIndex++];
-  g.state = foldAction(g.state, { type: 'Redo', actionIdToRedo });
+  g.state = foldNewAction(g.state, { type: 'Redo', actionIdToRedo });
 
   updateState();
   save();
   render();
 }
 
-function renderPage(state: State) {
+function renderPage(state: StateSnapshot) {
   const pageEl = document.createElement('div');
   pageEl.id = 'page';
 
@@ -403,7 +413,7 @@ function renderPage(state: State) {
   return pageEl;
 }
 
-function renderNavigator(state: State) {
+function renderNavigator(state: StateSnapshot) {
   const navEl = document.createElement('div');
   navEl.classList.add('nav-panel');
 
@@ -488,7 +498,7 @@ function renderNavigator(state: State) {
   return navEl;
 }
 
-function renderTotals(state: State) {
+function renderTotals(state: StateSnapshot) {
   const totalsSection = document.createElement('div');
   totalsSection.classList.add('totals-section');
 
@@ -909,16 +919,19 @@ function updateState() {
 
   // Need at least one list to render
   if (g.state.lists.length < 1) {
-    g.state = foldAction(g.state, { type: 'ListNew', id: uuidv4(), name: 'Wish list' });
+    g.state = foldNewAction(g.state, { type: 'ListNew', id: uuidv4(), name: 'Wish list' });
   }
 
-  const { timeOfNextNonlinearity } = project(g.state, toTime);
+  g.state = {
+    ...g.state,
+    ...project(g.state, toTime)
+  };
 
-  g.nextNonlinearity = timeOfNextNonlinearity;
+  g.nextNonlinearity = deserializeDate(g.state.nextNonlinearity);
   g.lastCommitTime = toTime;
 
-  if (timeOfNextNonlinearity) {
-    let timeoutPeriod = timeOfNextNonlinearity - Date.now();
+  if (g.nextNonlinearity) {
+    let timeoutPeriod = g.nextNonlinearity - Date.now();
     console.log(`Next nonlinearity in ${timeoutPeriod/1000}s`)
 
     g.nextNonLinearityTimer && clearTimeout(g.nextNonLinearityTimer);
@@ -938,104 +951,101 @@ function updateState() {
   }
 }
 
-// Projects the waterfall model to the future time `toTime`. Mutates `state` and
-// returns { timeOfNextNonlinearity }
-// TODO: Make this pure
-function project(inputState: State | InitialState, toTime: Timestamp) {
-  const state = inputState as State;
+// Projects the waterfall model to the future time `toTime`
+function project(state: StateSnapshot, toTime: Timestamp): StateSnapshot {
+  return produce(state, state => {
+    state.time ??= serializeDate(toTime);
 
-  state.time ??= serializeDate(toTime);
+    const lastCommitTime = deserializeDate(state.time);
+    let timeOfNextNonlinearity = null;
 
-  const lastCommitTime = deserializeDate(state.time);
-  let timeOfNextNonlinearity = null;
+    for (const list of state.lists) {
+      list.name ??= 'Wish list';
+      list.budget ??= { dollars: 0, unit: '/month' };
+      list.kitty ??= { value: 0, rate: 0 };
+      list.items ??= [];
+      list.purchaseHistory ??= [];
+      console.assert(!!list.id);
 
-  for (const list of state.lists) {
-    list.name ??= 'Wish list';
-    list.budget ??= { dollars: 0, unit: '/month' };
-    list.kitty ??= { value: 0, rate: 0 };
-    list.items ??= [];
-    list.purchaseHistory ??= [];
-    console.assert(!!list.id);
+      const allocatedRate = getAllocatedRate(list.budget);
 
-    const allocatedRate = getAllocatedRate(list.budget);
+      // We essentially iterate the time cursor forwards from the last commit time to the newTime
+      let timeCursor = lastCommitTime;
 
-    // We essentially iterate the time cursor forwards from the last commit time to the newTime
-    let timeCursor = lastCommitTime;
+      // The amount of money we have left over at `timeCursor`
+      let remainingMoneyToAllocate = list.kitty.value + rateInDollarsPerMs(allocatedRate) * (toTime - lastCommitTime);
 
-    // The amount of money we have left over at `timeCursor`
-    let remainingMoneyToAllocate = list.kitty.value + rateInDollarsPerMs(allocatedRate) * (toTime - lastCommitTime);
+      // Rate of change of remainingMoneyToAllocate at `timeCursor`, which
+      // eventually gets attributed to the kitty bucket
+      let overflowRate = allocatedRate;
 
-    // Rate of change of remainingMoneyToAllocate at `timeCursor`, which
-    // eventually gets attributed to the kitty bucket
-    let overflowRate = allocatedRate;
-
-    // Are we in debt?
-    let debt = 0;
-    let debtRate = 0;
-    if (remainingMoneyToAllocate < 0) {
-      // The money isn't available to allocate to further items, so we move it
-      // to the "debt" variable, which we'll put back in the kitty later
-      debt = -remainingMoneyToAllocate;
-      debtRate = -overflowRate;
-      remainingMoneyToAllocate = 0;
-      overflowRate = 0;
-
-      // How long it will take ot pay off the debt
-      timeCursor += allocatedRate ? debt / rateInDollarsPerMs(allocatedRate) : Infinity;
-
-      // The next non-linearity corresponds to when the debt is paid
-      if (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity)
-        timeOfNextNonlinearity = timeCursor;
-    }
-
-    // A cascading waterfall where we allocate the new money down the list
-    for (const item of list.items) {
-      item.name ??= 'Item';
-      item.price ??= 0;
-      item.saved ??= { value: 0, rate: 0 };
-      console.assert(!!item.id);
-
-      // Remaining item cost at the time of last commit
-      const remainingCost = item.price - item.saved.value;
-
-      // Project when we will have saved enough for this item
-      timeCursor += allocatedRate ? remainingCost / rateInDollarsPerMs(allocatedRate) : Infinity;
-
-      // Do we have enough money yet to cover it now?
-      if (remainingMoneyToAllocate >= remainingCost) {
-        remainingMoneyToAllocate -= remainingCost; // For the rare case of a price reduction, we can add back the money
-        item.saved.value = item.price;
-        item.saved.rate = 0;
-        item.expectedDate = null;
-      } else {
-        // Else we don't have enough money yet, so all the remaining money goes
-        // to the item. A special case is that we have no remaining money.
-        item.saved.value += remainingMoneyToAllocate;
-        item.saved.rate = overflowRate;
+      // Are we in debt?
+      let debt = 0;
+      let debtRate = 0;
+      if (remainingMoneyToAllocate < 0) {
+        // The money isn't available to allocate to further items, so we move it
+        // to the "debt" variable, which we'll put back in the kitty later
+        debt = -remainingMoneyToAllocate;
+        debtRate = -overflowRate;
         remainingMoneyToAllocate = 0;
         overflowRate = 0;
 
-        // The time cursor is the projected date when the remaining cost of the
-        // item will be paid off. The next nonlinearity is the earliest future
-        // time at which an item will be paid off.
+        // How long it will take ot pay off the debt
+        timeCursor += allocatedRate ? debt / rateInDollarsPerMs(allocatedRate) : Infinity;
+
+        // The next non-linearity corresponds to when the debt is paid
         if (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity)
           timeOfNextNonlinearity = timeCursor;
-
-        item.expectedDate = serializeDate(timeCursor);
       }
+
+      // A cascading waterfall where we allocate the new money down the list
+      for (const item of list.items) {
+        item.name ??= 'Item';
+        item.price ??= 0;
+        item.saved ??= { value: 0, rate: 0 };
+        console.assert(!!item.id);
+
+        // Remaining item cost at the time of last commit
+        const remainingCost = item.price - item.saved.value;
+
+        // Project when we will have saved enough for this item
+        timeCursor += allocatedRate ? remainingCost / rateInDollarsPerMs(allocatedRate) : Infinity;
+
+        // Do we have enough money yet to cover it now?
+        if (remainingMoneyToAllocate >= remainingCost) {
+          remainingMoneyToAllocate -= remainingCost; // For the rare case of a price reduction, we can add back the money
+          item.saved.value = item.price;
+          item.saved.rate = 0;
+          item.expectedDate = null;
+        } else {
+          // Else we don't have enough money yet, so all the remaining money goes
+          // to the item. A special case is that we have no remaining money.
+          item.saved.value += remainingMoneyToAllocate;
+          item.saved.rate = overflowRate;
+          remainingMoneyToAllocate = 0;
+          overflowRate = 0;
+
+          // The time cursor is the projected date when the remaining cost of the
+          // item will be paid off. The next nonlinearity is the earliest future
+          // time at which an item will be paid off.
+          if (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity)
+            timeOfNextNonlinearity = timeCursor;
+
+          item.expectedDate = serializeDate(timeCursor);
+        }
+      }
+
+      // If there's still money left over, it goes into the kitty
+      list.kitty.value = remainingMoneyToAllocate - debt;
+      list.kitty.rate = overflowRate - debtRate;
     }
 
-    // If there's still money left over, it goes into the kitty
-    list.kitty.value = remainingMoneyToAllocate - debt;
-    list.kitty.rate = overflowRate - debtRate;
-  }
+    state.time = serializeDate(toTime);
+    state.nextNonlinearity = timeOfNextNonlinearity
+      ? serializeDate(timeOfNextNonlinearity)
+      : null;
+  })
 
-  state.time = serializeDate(toTime);
-  state.nextNonlinearity = timeOfNextNonlinearity
-    ? serializeDate(timeOfNextNonlinearity)
-    : null;
-
-  return { timeOfNextNonlinearity };
 }
 
 function getAllocatedRate(budget: BudgetAmount) {
@@ -1901,30 +1911,27 @@ function addUserAction(action) {
     g.undoHistory = g.undoHistory.slice(0, g.undoIndex);
 }
 
-// Mutates `state` to include the effect of the given action, unless
-// `skipEffect` is true, in which case the hash will be updated but no effect on
-// the state lists.
-function foldAction(inputState: State | InitialState, newAction: Action | NewAction, skipEffect = false): State {
-  const state = inputState as State;
-
-  const action = {
+function foldNewAction(state: State, newAction: Action | NewAction): State {
+  return foldAction(state, {
     id: uuidv4(),
     time: serializeDate(Date.now()),
-    hash: undefined as any, // Will add in a moment
-    ...newAction
-  } as Action;
+    hash: undefined as any,
+    ...newAction,
+  } as Action);
+}
 
-  const time = deserializeDate(action.time);
-
-  project(state, time);
-
-  // Like a git hash, if "actions" are like commits. The hash allows us to
-  // quickly merge two histories or determine if there's a conflict (a fork in
-  // the history). Note that "JSON.stringify" here is technically not correct
-  // since it's not guaranteed to produce a canonical/deterministic output each
-  // time across different environments, but in this case it's safe for it to
-  // produce a different hash for the same history since it will just fall back
-  // to a full history merge (the hash is just used as an optimization).
+// Folds the effect of the given action into the given state, unless
+// `skipEffect` is true, in which case the hash will be updated but no effect on
+// the state lists. Note that the hash for the action is recalculated.
+function foldAction(state: State, action: Action, skipEffect = false): State {
+  // The hash is like a git hash, if "actions" are like commits. The hash allows
+  // us to quickly merge two histories or determine if there's a conflict (a
+  // fork in the history). Note that "JSON.stringify" here is technically not
+  // correct since it's not guaranteed to produce a canonical/deterministic
+  // output each time across different environments, but in this case it's safe
+  // for it to produce a different hash for the same history since it will just
+  // fall back to a full history merge (the hash is just used as an
+  // optimization).
   //
   // Note that the state hash isn't actually a hash of the full state, but a
   // hash that includes the whole action history, which fully determines the
@@ -1932,11 +1939,15 @@ function foldAction(inputState: State | InitialState, newAction: Action | NewAct
   const { hash, ...contentToHash } = action;
   state.hash = action.hash = md5Hash(JSON.stringify([state.hash, contentToHash]));
 
-  state.actions.push(action);
-
   if (skipEffect) {
     return state;
   }
+
+  const time = deserializeDate(action.time);
+  state = {
+    ...state,
+    ...project(state, time)
+  };
 
   const findList = id => state.lists.find(l => l.id === id);
   const findItem = id => {
@@ -2122,22 +2133,35 @@ function buildStateFromActions(id: StateId, actions: Action[]): State {
     { ...emptyState(), id }) as State;
 }
 
-function emptyState(): InitialState {
+function emptyState(): State {
   return {
+    // Note: these three fields get their initial value either from a `New`
+    // action or a `MigrateState` action, which should be the first actions in
+    // the history.
+    id: '',
+    time: serializeDate(0),
+    nextNonlinearity: 'never',
+
     actions: [],
     lists: [],
-    hash: md5Hash('')
+    hash: emptyHash
   }
 }
 
 function newState(id: Uuid): State {
-  return foldAction(emptyState(), { type: 'New', id });
+  return foldAction(emptyState(), {
+    type: 'New',
+    id,
+    time: serializeDate(Date.now()),
+    hash: ''
+  });
 }
 
 function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
+// TODO: Remove this at some point
 function occasionallyRebuild() {
   setInterval(() => {
     // This is to prove to ourselves that the "actions" property of the state
@@ -2204,7 +2228,7 @@ function mergeStates(...states) {
 }
 
 // TODO: Remove this at some point
-function upgradeStateFormat(state) {
+function upgradeStateFormat(state: State) {
   if (!state) return state;
   // For backwards compatibility with states that weren't created using an
   // actions list, we need to set up an actions list that is equivalent to the
@@ -2212,19 +2236,19 @@ function upgradeStateFormat(state) {
   if (!state.actions) {
     const id = state.id;
     const time = state.time;
-    const snapshot = {
-      id: state.id,
+    const snapshot: StateSnapshot = {
       time: state.time,
+      nextNonlinearity: state.nextNonlinearity,
       lists: state.lists.map(list => ({
         id: list.id ?? uuidv4(),
         name: list.name,
         budget: {
-          dollars: list.allocated.dollars,
-          unit: list.allocated.unit
+          dollars: list.budget.dollars,
+          unit: list.budget.unit
         },
         kitty: {
-          value: list.overflow.value,
-          rate: list.overflow.rate
+          value: list.kitty.value,
+          rate: list.kitty.rate
         },
         purchaseHistory: list.purchaseHistory.map(p => ({
           id: p.id ?? uuidv4(),
@@ -2237,14 +2261,16 @@ function upgradeStateFormat(state) {
           id: i.name ?? uuidv4(),
           price: i.price,
           saved: { value: i.saved.value, rate: i.saved.rate },
-          note: i.note ?? i.description
+          note: i.note
         }))
       }))
     };
+
     return foldAction(emptyState(), {
       type: 'MigrateState',
       id,
       time,
+      hash: '',
       state: snapshot
     });
   }

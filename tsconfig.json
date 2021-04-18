@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "system",
+    "module": "none",
     "moduleResolution": "Node",
     "allowJs": true,
     "noImplicitAny": false,
