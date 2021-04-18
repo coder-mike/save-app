@@ -125,7 +125,9 @@ interface ItemRedistributeMoney extends ItemActionBase { type: 'ItemRedistribute
 interface UndoAction extends ActionBase { type: 'Undo', actionIdToUndo: ActionId }
 interface RedoAction extends ActionBase { type: 'Redo', actionIdToRedo: ActionId }
 
-interface Window {
+interface Global {
+  mode: 'electron-local' | 'web-local' | 'online';
+
   userInfo: any;
   saveState: any;
   loadState: any;
@@ -149,32 +151,39 @@ interface Window {
   isEditing: boolean;
   elementBeingEdited: HTMLElement;
   editingTimeout: any;
+
 }
+
+// These used to all be on the Window object, but I decided to put them into
+// another object because in TypeScript I found it difficult to merge globals
+// into the Window. I didn't want to make them lexical bindings because this way
+// it's obvious that it's referencing global state.
+const g = {} as Global;
 
 declare const require: any;
 
 const domDataAttachments = new WeakMap<HTMLElement, List | Item | PurchaseHistoryItem>();
 
 const userInfoStorage = localStorage && localStorage.getItem('user-info');
-if (userInfoStorage) window.userInfo = JSON.parse(userInfoStorage);
+if (userInfoStorage) g.userInfo = JSON.parse(userInfoStorage);
 
-let mode;
+
 detectMode();
 
-window.saveState = async () => {
-  switch (mode) {
+g.saveState = async () => {
+  switch (g.mode) {
     case 'electron-local': {
       const fs = require('fs');
       if (!fs.existsSync('backups')) {
         fs.mkdirSync('backups');
       }
       fs.renameSync('state.json', `backups/state_${Math.round(Date.now())}.json.backup`)
-      fs.writeFileSync('state.json', JSON.stringify(window.state, null, 2));
+      fs.writeFileSync('state.json', JSON.stringify(g.state, null, 2));
       console.log('Saved to file');
       break;
     }
     case 'web-local': {
-      localStorage.setItem('squirrel-away-state', JSON.stringify(window.state));
+      localStorage.setItem('squirrel-away-state', JSON.stringify(g.state));
       console.log('Saved to localStorage');
       break;
     }
@@ -185,22 +194,22 @@ window.saveState = async () => {
   }
 };
 
-window.loadState = async (renderOnChange) => {
+g.loadState = async (renderOnChange) => {
   try {
-    switch (mode) {
+    switch (g.mode) {
       case 'electron-local': {
         const fs = require('fs');
-        window.state = upgradeStateFormat(JSON.parse(fs.readFileSync('state.json')));
+        g.state = upgradeStateFormat(JSON.parse(fs.readFileSync('state.json')));
         console.log('Loaded state from file');
         break;
       }
       case 'web-local': {
         const localStorageContent = localStorage.getItem('squirrel-away-state');
         if (!localStorageContent) {
-          window.state = newState(uuidv4());
+          g.state = newState(uuidv4());
           return;
         }
-        window.state = upgradeStateFormat(JSON.parse(localStorageContent));
+        g.state = upgradeStateFormat(JSON.parse(localStorageContent));
         console.log('Loaded state from localStorage');
         break;
       }
@@ -211,23 +220,23 @@ window.loadState = async (renderOnChange) => {
     }
   } catch (e) {
     console.error(e);
-    window.state = newState(uuidv4());
+    g.state = newState(uuidv4());
   }
 }
 
 window.addEventListener('load', async() => {
-  window.syncStatus = 'sync-pending';
-  window.undoHistory = []; // List of action IDs available to undo
-  window.undoIndex = 0; // Points after the last entry in undoHistory
-  window.debugMode = false;
-  if (window.debugMode) window.state.time = serializeDate(Date.now());
+  g.syncStatus = 'sync-pending';
+  g.undoHistory = []; // List of action IDs available to undo
+  g.undoIndex = 0; // Points after the last entry in undoHistory
+  g.debugMode = false;
+  if (g.debugMode) g.state.time = serializeDate(Date.now());
 
-  await window.loadState(false);
+  await g.loadState(false);
 
   // It's useful here to reconstruct the state from the actions list. For one
   // thing, if there are earlier bugs in the reducer that get fixed later,
   // running the re-reducer at startup means we recompute the correct end state.
-  window.state = buildStateFromActions(window.state.id, window.state.actions);
+  g.state = buildStateFromActions(g.state.id, g.state.actions);
 
   updateState();
   render();
@@ -244,21 +253,21 @@ window.addEventListener('blur', windowBlurEvent);
 function render() {
   console.log('Rendering');
 
-  window.currentListIndex ??= 0;
-  window.currentListIndex = Math.max(window.currentListIndex, 0);
-  window.currentListIndex = Math.min(window.currentListIndex, window.state.lists.length - 1);
+  g.currentListIndex ??= 0;
+  g.currentListIndex = Math.max(g.currentListIndex, 0);
+  g.currentListIndex = Math.min(g.currentListIndex, g.state.lists.length - 1);
 
   saveScrollPosition();
   document.body.innerHTML = '';
-  document.body.appendChild(renderPage(window.state));
+  document.body.appendChild(renderPage(g.state));
   restoreScrollPosition();
 }
 
 function save() {
-  if (window.debugMode) {
+  if (g.debugMode) {
     console.log('Would save here');
   } else {
-    window.saveState();
+    g.saveState();
   }
 }
 
@@ -350,10 +359,10 @@ function undo() {
    */
 
   // Can't undo past the beginning
-  if (window.undoIndex <= 0) return;
+  if (g.undoIndex <= 0) return;
 
-  const actionIdToUndo = window.undoHistory[--window.undoIndex];
-  window.state = foldAction(window.state, { type: 'Undo', actionIdToUndo });
+  const actionIdToUndo = g.undoHistory[--g.undoIndex];
+  g.state = foldAction(g.state, { type: 'Undo', actionIdToUndo });
 
   updateState();
   save();
@@ -362,11 +371,11 @@ function undo() {
 
 function redo() {
   // Can't redo past the end
-  if (window.undoIndex >= window.undoHistory.length) return;
+  if (g.undoIndex >= g.undoHistory.length) return;
 
   // Restore to the state
-  const actionIdToRedo = window.undoHistory[window.undoIndex++];
-  window.state = foldAction(window.state, { type: 'Redo', actionIdToRedo });
+  const actionIdToRedo = g.undoHistory[g.undoIndex++];
+  g.state = foldAction(g.state, { type: 'Redo', actionIdToRedo });
 
   updateState();
   save();
@@ -377,14 +386,14 @@ function renderPage(state: State) {
   const pageEl = document.createElement('div');
   pageEl.id = 'page';
 
-  if (window.debugMode)
+  if (g.debugMode)
     pageEl.classList.add('debug-mode');
 
-  pageEl.classList.add(mode);
-  pageEl.classList.add(window.syncStatus);
+  pageEl.classList.add(g.mode);
+  pageEl.classList.add(g.syncStatus);
 
   pageEl.appendChild(renderNavigator(state));
-  pageEl.appendChild(renderList(state.lists[window.currentListIndex]));
+  pageEl.appendChild(renderList(state.lists[g.currentListIndex]));
 
   // The gray overlay that goes underneath the mobile nav menu
   const mobileNavBackground = pageEl.appendChild(document.createElement('div'));
@@ -404,9 +413,9 @@ function renderNavigator(state: State) {
   userStatusEl.classList.add('user-status');
   const userPanelButtonsEl = userPanel.appendChild(document.createElement('div'))
   userPanelButtonsEl.classList.add('user-panel-buttons');
-  if (mode === 'online') {
-    if (window.syncStatus !== 'sync-failure') {
-      userStatusEl.innerHTML = `Hi, ${window.userInfo.name}`;
+  if (g.mode === 'online') {
+    if (g.syncStatus !== 'sync-failure') {
+      userStatusEl.innerHTML = `Hi, ${g.userInfo.name}`;
     } else {
       userStatusEl.innerHTML = `Connection error`;
     }
@@ -415,7 +424,7 @@ function renderNavigator(state: State) {
     signOutButton.className = 'sign-out';
     signOutButton.textContent = 'Sign out';
     signOutButton.addEventListener('click', signOutClick);
-  } else if (mode === 'web-local') {
+  } else if (g.mode === 'web-local') {
     userStatusEl.innerHTML = 'Your lists are currently stored locally';
 
     const signUpButton = userPanelButtonsEl.appendChild(document.createElement('button'));
@@ -442,7 +451,7 @@ function renderNavigator(state: State) {
     domDataAttachments.set(itemEl, list);
     itemEl.classList.add('nav-item');
     if (listHasReadyItems) itemEl.classList.add('has-ready-items');
-    if (i === window.currentListIndex) itemEl.classList.add('active');
+    if (i === g.currentListIndex) itemEl.classList.add('active');
     itemEl.addEventListener('click', navListItemClick);
 
     const nameEl = itemEl.appendChild(document.createElement('h1'));
@@ -836,11 +845,11 @@ function renderAmount(amount: LinearAmount) {
   subCents.classList.add('sub-cents');
   let executingFromTimer = false;
   const update = () => {
-    //if (window.isEditing) return;
+    //if (global.isEditing) return;
     // Check if element is removed
     if (executingFromTimer && !document.getElementById(amountSpan.id))
       return clearInterval(timer);
-    const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - window.lastCommitTime);
+    const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - g.lastCommitTime);
     const s = value.toFixed(4)
     mainAmount.textContent = s.slice(0, s.length - 2);
     subCents.textContent = s.slice(-2);
@@ -862,10 +871,10 @@ function createItemBackground(item: Item, itemEl: HTMLElement) {
     itemEl.id = generateNewId();
     let timer;
     const update = (synchronous) => {
-      //if (window.isEditing) return;
+      //if (global.isEditing) return;
       if (!synchronous && !document.getElementById(itemEl.id))
         return clearInterval(timer);
-      const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - window.lastCommitTime);
+      const value = amount.value + rateInDollarsPerMs(amount.rate) * (Date.now() - g.lastCommitTime);
       const percent = (value / item.price) * 100;
       const color1 = amount.rate ? '#afd9ea' : '#dddddd';
       const color2 = amount.rate ? '#e1ecf1' : '#eaeaea';
@@ -877,7 +886,7 @@ function createItemBackground(item: Item, itemEl: HTMLElement) {
     if (amount.rate) {
       // Once a second shouldn't be to taxing, and it's probably fast enough for
       // most real-world savings
-      timer = setInterval(update, window.debugMode ? 100 : 1000)
+      timer = setInterval(update, g.debugMode ? 100 : 1000)
     }
   }
 }
@@ -899,26 +908,26 @@ function updateState() {
   const toTime = Date.now();
 
   // Need at least one list to render
-  if (window.state.lists.length < 1) {
-    window.state = foldAction(window.state, { type: 'ListNew', id: uuidv4(), name: 'Wish list' });
+  if (g.state.lists.length < 1) {
+    g.state = foldAction(g.state, { type: 'ListNew', id: uuidv4(), name: 'Wish list' });
   }
 
-  const { timeOfNextNonlinearity } = project(window.state, toTime);
+  const { timeOfNextNonlinearity } = project(g.state, toTime);
 
-  window.nextNonlinearity = timeOfNextNonlinearity;
-  window.lastCommitTime = toTime;
+  g.nextNonlinearity = timeOfNextNonlinearity;
+  g.lastCommitTime = toTime;
 
   if (timeOfNextNonlinearity) {
     let timeoutPeriod = timeOfNextNonlinearity - Date.now();
     console.log(`Next nonlinearity in ${timeoutPeriod/1000}s`)
 
-    window.nextNonLinearityTimer && clearTimeout(window.nextNonLinearityTimer);
+    g.nextNonLinearityTimer && clearTimeout(g.nextNonLinearityTimer);
     if (timeoutPeriod > 2147483647)
       timeoutPeriod = 2147483647
     if (timeoutPeriod < 1)
       timeoutPeriod = 1;
-    window.nextNonLinearityTimer = setTimeout(() => {
-      if (window.isEditing || window.dialogBackgroundEl) {
+    g.nextNonLinearityTimer = setTimeout(() => {
+      if (g.isEditing || g.dialogBackgroundEl) {
         console.log('Not updating at nonlinearity because user is busy editing')
         return;
       }
@@ -1179,11 +1188,11 @@ function showDialog(title, content, buttons) {
   // Hide previous dialog
   hideDialog();
 
-  window.dialogBackgroundEl = document.body.appendChild(document.createElement('div'));
-  window.dialogBackgroundEl.classList.add('dialog-background');
-  window.dialogBackgroundEl.addEventListener('mousedown', hideDialog);
+  g.dialogBackgroundEl = document.body.appendChild(document.createElement('div'));
+  g.dialogBackgroundEl.classList.add('dialog-background');
+  g.dialogBackgroundEl.addEventListener('mousedown', hideDialog);
 
-  const dialogEl = window.dialogBackgroundEl.appendChild(document.createElement('div'));
+  const dialogEl = g.dialogBackgroundEl.appendChild(document.createElement('div'));
   dialogEl.classList.add('dialog');
   dialogEl.addEventListener('mousedown', e => e.stopPropagation());
 
@@ -1207,8 +1216,8 @@ function showDialog(title, content, buttons) {
 }
 
 function hideDialog() {
-  window.dialogBackgroundEl && window.dialogBackgroundEl.remove();
-  window.dialogBackgroundEl = undefined;
+  g.dialogBackgroundEl && g.dialogBackgroundEl.remove();
+  g.dialogBackgroundEl = undefined;
 }
 
 function addItemClick(event) {
@@ -1323,8 +1332,8 @@ function makeEditable(el, { read, write, requiresRender = false }) {
 function navListItemClick(event) {
   const list = (domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest(".nav-item"))) as List;
 
-  const index = window.state.lists.indexOf(list);
-  window.currentListIndex = index;
+  const index = g.state.lists.indexOf(list);
+  g.currentListIndex = index;
 
   render();
 }
@@ -1332,26 +1341,26 @@ function navListItemClick(event) {
 function beginEdit(el) {
   updateState();
 
-  window.isEditing = true;
-  window.elementBeingEdited = el;
+  g.isEditing = true;
+  g.elementBeingEdited = el;
   // The nonlinearities don't update until we finish editing, so in case the
   // user leaves the edit in progress, we cancel after 1 minute of inactivity
-  window.editingTimeout = setTimeout(editTimeout, 60000);
+  g.editingTimeout = setTimeout(editTimeout, 60000);
 }
 
 function continueEdit() {
-  clearTimeout(window.editingTimeout);
-  window.editingTimeout = setTimeout(editTimeout, 60000);
+  clearTimeout(g.editingTimeout);
+  g.editingTimeout = setTimeout(editTimeout, 60000);
 }
 
 function editTimeout() {
-  window.elementBeingEdited && window.elementBeingEdited.blur();
+  g.elementBeingEdited && g.elementBeingEdited.blur();
 }
 
 function endEdit(changed = true, requiresRender = true) {
-  window.isEditing = false;
-  window.elementBeingEdited = null;
-  clearTimeout(window.editingTimeout);
+  g.isEditing = false;
+  g.elementBeingEdited = null;
+  clearTimeout(g.editingTimeout);
   if (changed)
     finishedUserInteraction(requiresRender);
 }
@@ -1359,12 +1368,12 @@ function endEdit(changed = true, requiresRender = true) {
 function newListClick() {
   let name = 'Wish list';
   let counter = 1;
-  while (window.state.lists.some(l => l.name === name))
+  while (g.state.lists.some(l => l.name === name))
     name = `Wish list ${++counter}`;
 
   addUserAction({ type: 'ListNew', name });
 
-  window.currentListIndex = window.state.lists.length - 1;
+  g.currentListIndex = g.state.lists.length - 1;
 
   finishedUserInteraction();
 
@@ -1405,7 +1414,7 @@ function createPlusSvg() {
 
 function itemDrag(event) {
   const item = domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest('.item'));
-  window.draggingItem = item;
+  g.draggingItem = item;
   event.dataTransfer.dropEffect = 'move';
 }
 
@@ -1418,25 +1427,25 @@ function itemDragEnd(event) {
 }
 
 function itemDragEnter(event) {
-  if (!window.draggingItem) return;
+  if (!g.draggingItem) return;
   const itemEl = getItemElAtNode(event.target);
-  if (domDataAttachments.get(itemEl) === window.draggingItem) return;
+  if (domDataAttachments.get(itemEl) === g.draggingItem) return;
   itemEl.dragOverCount = (itemEl.dragOverCount ?? 0) + 1;
   if (itemEl.dragOverCount)
     itemEl.classList.add('item-drag-over');
 }
 
 function itemDragLeave(event) {
-  if (!window.draggingItem) return;
+  if (!g.draggingItem) return;
   const itemEl = getItemElAtNode(event.target);
-  if (domDataAttachments.get(itemEl) === window.draggingItem) return;
+  if (domDataAttachments.get(itemEl) === g.draggingItem) return;
   itemEl.dragOverCount = (itemEl.dragOverCount ?? 0) - 1;
   if (!itemEl.dragOverCount)
     itemEl.classList.remove('item-drag-over');
 }
 
 function itemDragOver(event) {
-  if (!window.draggingItem) return;
+  if (!g.draggingItem) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = 'move';
 }
@@ -1444,9 +1453,9 @@ function itemDragOver(event) {
 function itemDrop(event) {
   event.preventDefault();
 
-  const sourceItem = window.draggingItem;
+  const sourceItem = g.draggingItem;
   if (!sourceItem) return;
-  window.draggingItem = undefined;
+  g.draggingItem = undefined;
 
   event.dataTransfer.dropEffect = 'move';
 
@@ -1524,8 +1533,8 @@ function createReadyIndicatorSvg() {
 }
 
 function generateNewId() {
-  window.idCounter = (window.idCounter ?? 0) + 1;
-  return `id${window.idCounter}`;
+  g.idCounter = (g.idCounter ?? 0) + 1;
+  return `id${g.idCounter}`;
 }
 
 function createMenuButtonSvg() {
@@ -1586,11 +1595,11 @@ function menuButtonClick(event) {
 function toggleMenu(menu) {
   const menuBody = menu.getElementsByClassName('menu-body')[0];
   if (menuBody.style.display === 'block') {
-    window.showingMenu = undefined;
+    g.showingMenu = undefined;
     menuBody.style.display = 'none';
   } else {
     hideMenu();
-    window.showingMenu = menu;
+    g.showingMenu = menu;
     menuBody.style.display = 'block';
   }
 }
@@ -1599,7 +1608,7 @@ function deleteListClick(event) {
   const list = domDataAttachments.get(event.target.closest('.list'));
 
   addUserAction({ type: 'ListDelete', listId: list.id })
-  window.currentListIndex--;
+  g.currentListIndex--;
 
   finishedUserInteraction();
 }
@@ -1658,10 +1667,10 @@ function documentMouseDown() {
 }
 
 function hideMenu() {
-  if (window.showingMenu) {
-    const menuBody = window.showingMenu.getElementsByClassName('menu-body')[0] as HTMLElement;
+  if (g.showingMenu) {
+    const menuBody = g.showingMenu.getElementsByClassName('menu-body')[0] as HTMLElement;
     menuBody.style.display = 'none';
-    window.showingMenu = undefined;
+    g.showingMenu = undefined;
   }
 }
 
@@ -1750,11 +1759,11 @@ function signInClick() {
 
     const result = await apiRequest('login', { email, password });
     if (result.success) {
-      mode = 'online';
-      window.state = parseState(localStorage.getItem('squirrel-away-online-state'));
-      window.state = mergeStates(window.state, result.state);
-      window.userInfo = result.userInfo;
-      localStorage.setItem('user-info', JSON.stringify(window.userInfo));
+      g.mode = 'online';
+      g.state = parseState(localStorage.getItem('squirrel-away-online-state'));
+      g.state = mergeStates(g.state, result.state);
+      g.userInfo = result.userInfo;
+      localStorage.setItem('user-info', JSON.stringify(g.userInfo));
 
       finishedUserInteraction();
     } else {
@@ -1818,15 +1827,15 @@ function signUpClick() {
     const name = nameEl.value;
     const email = userEmailEl.value;
     const password = userPasswordEl.value;
-    const state = window.state;
+    const state = g.state;
 
     const result = await apiRequest('new-account', { name, email, password, state });
     if (result.success) {
-      mode = 'online';
-      window.state = result.state;
-      window.userInfo = result.userInfo;
-      localStorage.setItem('squirrel-away-online-state', JSON.stringify(window.state));
-      localStorage.setItem('user-info', JSON.stringify(window.userInfo));
+      g.mode = 'online';
+      g.state = result.state;
+      g.userInfo = result.userInfo;
+      localStorage.setItem('squirrel-away-online-state', JSON.stringify(g.state));
+      localStorage.setItem('user-info', JSON.stringify(g.userInfo));
       // The next time the user logs out, they won't see the state, so it's hopefully less confusing
       localStorage.removeItem('state');
 
@@ -1838,28 +1847,28 @@ function signUpClick() {
 }
 
 function detectMode() {
-  if (window.userInfo?.id) {
-    mode = 'online';
+  if (g.userInfo?.id) {
+    g.mode = 'online';
   } else if (typeof require !== 'undefined') {
-    mode = 'electron-local';
+    g.mode = 'electron-local';
   } else {
-    mode = 'web-local';
+    g.mode = 'web-local';
   }
 }
 
 async function signOutClick() {
-  delete window.userInfo;
+  delete g.userInfo;
   localStorage && localStorage.removeItem('user-info');
   localStorage && localStorage.removeItem('squirrel-away-online-state');
-  window.syncStatus = 'sync-pending';
+  g.syncStatus = 'sync-pending';
   detectMode();
-  await window.loadState();
+  await g.loadState();
   finishedUserInteraction();
 }
 
 function saveScrollPosition() {
   const list = document.getElementById('current-list');
-  if (list) window.listScrollPosition = list.scrollTop;
+  if (list) g.listScrollPosition = list.scrollTop;
 }
 
 function restoreScrollPosition() {
@@ -1867,7 +1876,7 @@ function restoreScrollPosition() {
   // page refreshes. Otherwise, whenever you add a new item, the scroll position
   // is lost and you go back up to the top.
   const list = document.getElementById('current-list');
-  list.scrollTop = window.listScrollPosition;
+  list.scrollTop = g.listScrollPosition;
 }
 
 function selectAllInContentEditable(el) {
@@ -1884,12 +1893,12 @@ function uuidv4(): Uuid {
 
 // Folds the action into the state and records it in the undo history
 function addUserAction(action) {
-  window.state = foldAction(window.state, action);
+  g.state = foldAction(g.state, action);
 
-  window.undoHistory[window.undoIndex++] = action.id;
+  g.undoHistory[g.undoIndex++] = action.id;
   // Any future history (for redo) becomes invalid at this point
-  if (window.undoHistory.length > window.undoIndex)
-    window.undoHistory = window.undoHistory.slice(0, window.undoIndex);
+  if (g.undoHistory.length > g.undoIndex)
+    g.undoHistory = g.undoHistory.slice(0, g.undoIndex);
 }
 
 // Mutates `state` to include the effect of the given action, unless
@@ -2135,10 +2144,10 @@ function occasionallyRebuild() {
     // contains all the necessary information to rebuild the latest state of all
     // the lists. I want this here because it'll cause bugs to surface earlier
     // rather than later if there's a problem building state from the actions.
-    if (!window.dialogBackgroundEl && !window.isEditing && window.state.actions) {
+    if (!g.dialogBackgroundEl && !g.isEditing && g.state.actions) {
       console.log('Rebuilding the list state from the actions')
-      window.state = buildStateFromActions(window.state.id, window.state.actions);
-      window.lastCommitTime = deserializeDate(window.state.time);
+      g.state = buildStateFromActions(g.state.id, g.state.actions);
+      g.lastCommitTime = deserializeDate(g.state.time);
 
       render();
     }
@@ -2243,10 +2252,10 @@ function upgradeStateFormat(state) {
 }
 
 async function synchronize(renderOnChange = true) {
-  if (mode !== 'online') return;
+  if (g.mode !== 'online') return;
 
   console.log('Synchronizing with localStorage');
-  let state = window.state;
+  let state = g.state;
 
   // Synchronize with local storage first
 
@@ -2258,10 +2267,10 @@ async function synchronize(renderOnChange = true) {
     localStorage.setItem('squirrel-away-online-state', JSON.stringify(state));
   }
 
-  if (!sameState(state, window.state)) {
+  if (!sameState(state, g.state)) {
     console.log('Loading changes from local storage');
-    window.state = state;
-    window.lastCommitTime = deserializeDate(state.time);
+    g.state = state;
+    g.lastCommitTime = deserializeDate(state.time);
     if (renderOnChange) render();
   }
 
@@ -2281,40 +2290,40 @@ async function syncWithServer() {
     console.log('Synchronizing with server');
 
     const remote = upgradeStateFormat(await loadRemoteState());
-    const state = mergeStates(window.state, remote);
+    const state = mergeStates(g.state, remote);
     if (!sameState(state, remote)) {
       console.log('Pushing state to server');
       await saveRemoteState(state);
     }
 
-    if (!sameState(state, window.state)) {
+    if (!sameState(state, g.state)) {
       console.log('Rendering changes from server');
-      window.state = state;
-      window.lastCommitTime = deserializeDate(state.time);
-      window.syncStatus = 'sync-success';
+      g.state = state;
+      g.lastCommitTime = deserializeDate(state.time);
+      g.syncStatus = 'sync-success';
       render();
     } else {
       console.log('No changes from server');
 
-      if (window.syncStatus !== 'sync-success') {
-        window.syncStatus = 'sync-success';
+      if (g.syncStatus !== 'sync-success') {
+        g.syncStatus = 'sync-success';
         render();
       }
     }
   } catch (e) {
-    window.syncStatus = 'sync-failure';
+    g.syncStatus = 'sync-failure';
     console.error(e);
     render();
   }
 }
 
 async function loadRemoteState() {
-  const response = await apiRequest('load', { userId: window.userInfo.id });
+  const response = await apiRequest('load', { userId: g.userInfo.id });
   return response.success ? response.state : undefined;
 }
 
 async function saveRemoteState(state) {
-  await apiRequest('save', { userId: window.userInfo.id, state });
+  await apiRequest('save', { userId: g.userInfo.id, state });
 }
 
 function parseState(json) {
