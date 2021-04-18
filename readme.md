@@ -9,7 +9,7 @@ A simple app to help to limit spending. You create a list of things you want, an
 ## Run
 
   - Clone repo
-  - `npm run build` or `npm run build:watch` to build (the later will watch for changes after building)
+  - `npm run build` or `npm run build:watch` to build (the later will watch for changes after building), or use `ctrl+shift+B` in VSCode to build continuously in the background.
   - `npm run web-server` and open `localhost:8080` in a browser (uses web localStorage for storage)
   - OR host the `./public` files on a PHP server with `config.php` configured with the chosen database connection
 

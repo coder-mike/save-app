@@ -3,8 +3,127 @@
 const svgNS = 'http://www.w3.org/2000/svg';
 
 type Timestamp = number;
-type List = any;
-type Item = any;
+type ISO8601Timestamp = string;
+type Md5Hash = string;
+type Currency = number;
+type CurrencyPerDay = number;
+
+type Uuid = string;
+type ActionId = Uuid;
+type StateId = Uuid;
+type ListId = Uuid;
+type ItemId = Uuid;
+
+interface State {
+  id: StateId;
+  time: ISO8601Timestamp;
+  nextNonlinearity: ISO8601Timestamp;
+  // List of "event-sourced" events, here-named actions. This is an append-only
+  // list, and individual actions will never be mutated.
+  actions: Action[];
+  lists: List[];
+  hash: Md5Hash;
+}
+
+type InitialState = Omit<State, 'id' | 'time' | 'nextNonlinearity'>;
+
+// The non-event-sourced part of the state
+type StateSnapshot = Omit<State, 'actions' | 'hash' | 'nextNonlinearity'>;
+
+interface List {
+  id: ListId;
+  name: string;
+  items: Item[];
+  budget: BudgetAmount;
+  kitty: LinearAmount;
+  purchaseHistory: PurchaseHistoryItem[];
+}
+
+interface BudgetAmount {
+  dollars: Currency;
+  unit: '/month';
+}
+
+interface LinearAmount {
+  value: Currency; // The value as measured at `State.time` timestamp
+  rate: CurrencyPerDay; // Rate of change in dollars per day
+}
+
+interface Item {
+  id: ItemId;
+  name?: string;
+  price: Currency;
+  saved: LinearAmount;
+  note?: string;
+  expectedDate?: ISO8601Timestamp | 'never';
+}
+
+interface PurchaseHistoryItem {
+  id: ItemId;
+  name?: string;
+  priceEstimate: Currency;
+  price: Currency;
+  purchaseDate: ISO8601Timestamp;
+}
+
+interface ActionBase {
+  id: ActionId;
+  time: ISO8601Timestamp;
+  hash: Md5Hash;
+}
+
+interface ListActionBase extends ActionBase {
+  listId: ListId;
+}
+
+interface ItemActionBase extends ActionBase {
+  itemId: ItemId;
+}
+
+type Action =
+  | NewState
+  | MigrateState
+  | ListNew
+  | ListDelete
+  | ListSetName
+  | ListSetBudget
+  | ListInjectMoney
+  | ItemNew
+  | ItemMove
+  | ItemDelete
+  | ItemSetName
+  | ItemSetPrice
+  | ItemSetNote
+  | ItemPurchase
+  | ItemRedistributeMoney
+  | UndoAction
+  | RedoAction
+
+// A new action is an action that hasn't yet been added to the action history
+type NewAction = Omit<Action, 'id' | 'time' | 'hash'>;
+
+// Actions
+
+interface NewState extends ActionBase { type: 'New' }
+interface MigrateState extends ActionBase { type: 'MigrateState', state: StateSnapshot }
+
+interface ListNew extends ActionBase { type: 'ListNew', name: string }
+interface ListDelete extends ListActionBase { type: 'ListDelete', listId: ListId }
+interface ListSetName extends ListActionBase { type: 'ListSetName', newName: string }
+interface ListSetBudget extends ListActionBase { type: 'ListSetBudget', budget: BudgetAmount }
+interface ListInjectMoney extends ListActionBase { type: 'ListInjectMoney', amount: number }
+
+interface ItemNew extends ListActionBase { type: 'ItemNew' }
+interface ItemMove extends ItemActionBase { type: 'ItemMove', targetListId: ListId, targetIndex: number }
+interface ItemDelete extends ItemActionBase { type: 'ItemDelete' }
+interface ItemSetName extends ItemActionBase { type: 'ItemSetName', name: string }
+interface ItemSetPrice extends ItemActionBase { type: 'ItemSetPrice', price: Currency }
+interface ItemSetNote extends ItemActionBase { type: 'ItemSetNote', note: string }
+interface ItemPurchase extends ItemActionBase { type: 'ItemPurchase', actualPrice: Currency }
+interface ItemRedistributeMoney extends ItemActionBase { type: 'ItemRedistributeMoney' }
+
+interface UndoAction extends ActionBase { type: 'Undo', actionIdToUndo: ActionId }
+interface RedoAction extends ActionBase { type: 'Redo', actionIdToRedo: ActionId }
 
 interface Window {
   userInfo: any;
@@ -12,7 +131,7 @@ interface Window {
   loadState: any;
 
   debugMode: boolean;
-  state: any;
+  state: State;
   nextNonlinearity: Timestamp;
   lastCommitTime: Timestamp;
   currentListIndex: number;
@@ -34,7 +153,7 @@ interface Window {
 
 declare const require: any;
 
-const domDataAttachments = new WeakMap<HTMLElement, List | Item>();
+const domDataAttachments = new WeakMap<HTMLElement, List | Item | PurchaseHistoryItem>();
 
 const userInfoStorage = localStorage && localStorage.getItem('user-info');
 if (userInfoStorage) window.userInfo = JSON.parse(userInfoStorage);
@@ -254,7 +373,7 @@ function redo() {
   render();
 }
 
-function renderPage(state) {
+function renderPage(state: State) {
   const pageEl = document.createElement('div');
   pageEl.id = 'page';
 
@@ -275,7 +394,7 @@ function renderPage(state) {
   return pageEl;
 }
 
-function renderNavigator(state) {
+function renderNavigator(state: State) {
   const navEl = document.createElement('div');
   navEl.classList.add('nav-panel');
 
@@ -360,7 +479,7 @@ function renderNavigator(state) {
   return navEl;
 }
 
-function renderTotals(state) {
+function renderTotals(state: State) {
   const totalsSection = document.createElement('div');
   totalsSection.classList.add('totals-section');
 
@@ -403,14 +522,14 @@ function renderTotals(state) {
   return totalsSection;
 }
 
-function renderCurrency(amount, decimals = 2) {
+function renderCurrency(amount: Currency, decimals = 2) {
   const el = document.createElement('span');
   el.classList.add('currency')
   el.textContent = formatCurrency(amount, decimals);
   return el;
 }
 
-function renderList(list) {
+function renderList(list: List) {
   const listEl = document.createElement('div');
   listEl.id = 'current-list';
   domDataAttachments.set(listEl, list);
@@ -542,12 +661,10 @@ function createListMenu() {
   })
 }
 
-function renderItem(item) {
+function renderItem(item: Item) {
   const itemEl = document.createElement('li');
   domDataAttachments.set(itemEl, item);
   itemEl.classList.add('item');
-  if (item.purchased)
-    itemEl.classList.add('purchased')
   if (item.price > 0 && item.saved.value >= item.price)
     itemEl.classList.add('afforded')
   if (item.saved.value > 0 && item.saved.value < item.price)
@@ -633,7 +750,7 @@ function renderItem(item) {
   return itemEl;
 }
 
-function createItemMenu(item) {
+function createItemMenu(item: Item) {
   return createMenu(menu => {
     menu.setIcon(createMenuButtonSvg());
 
@@ -645,9 +762,9 @@ function createItemMenu(item) {
     smiley.style.display = 'inline';
     smiley.style.marginLeft = '7px';
     smiley.style.marginBottom = '-2px';
-    smiley.style.opacity = 0.5;
-    smiley.setAttribute('width', 16);
-    smiley.setAttribute('height', 16);
+    smiley.style.opacity = '0.5';
+    smiley.setAttribute('width', '16');
+    smiley.setAttribute('height', '16');
 
     // Edit note
     const editNote = menu.newItem();
@@ -671,7 +788,7 @@ function createItemMenu(item) {
   })
 }
 
-function renderHistoryItem(item) {
+function renderHistoryItem(item: PurchaseHistoryItem) {
   const historyItemEl = document.createElement('li');
 
   domDataAttachments.set(historyItemEl, item);
@@ -697,7 +814,7 @@ function renderHistoryItem(item) {
   return historyItemEl;
 }
 
-function renderAmount(amount) {
+function renderAmount(amount: LinearAmount) {
   if (!amount.rate) {
     const amountSpan = document.createElement('span');
     amountSpan.classList.add('money');
@@ -737,7 +854,7 @@ function renderAmount(amount) {
   return amountSpan;
 }
 
-function createItemBackground(item, itemEl) {
+function createItemBackground(item: Item, itemEl: HTMLElement) {
   const amount = item.saved;
   // This function creates the moving background div to indicate progress, which
   // only applies
@@ -765,7 +882,7 @@ function createItemBackground(item, itemEl) {
   }
 }
 
-function formatCurrency(value, decimals = 2) {
+function formatCurrency(value: Currency, decimals = 2) {
   return value.toFixed(decimals);
 }
 
@@ -814,9 +931,9 @@ function updateState() {
 
 // Projects the waterfall model to the future time `toTime`. Mutates `state` and
 // returns { timeOfNextNonlinearity }
-function project(state, toTime) {
-  console.assert(state);
-  console.assert(Array.isArray(state.lists));
+// TODO: Make this pure
+function project(inputState: State | InitialState, toTime: Timestamp) {
+  const state = inputState as State;
 
   state.time ??= serializeDate(toTime);
 
@@ -825,11 +942,11 @@ function project(state, toTime) {
 
   for (const list of state.lists) {
     list.name ??= 'Wish list';
-    list.budget ??= list.allocated ?? { dollars: 0, unit: '/month' };
-    list.kitty ??= list.overflow ?? { value: 0, rate: 0 };
+    list.budget ??= { dollars: 0, unit: '/month' };
+    list.kitty ??= { value: 0, rate: 0 };
     list.items ??= [];
     list.purchaseHistory ??= [];
-    list.id ??= uuidv4();
+    console.assert(!!list.id);
 
     const allocatedRate = getAllocatedRate(list.budget);
 
@@ -867,9 +984,7 @@ function project(state, toTime) {
       item.name ??= 'Item';
       item.price ??= 0;
       item.saved ??= { value: 0, rate: 0 };
-      item.id ??= uuidv4();
-      item.note ??= item.description; // Migrate from old name "description" to new name "note" // TODO: Remove this after a while
-      item.description = item.note; // TODO: Remove this after a while
+      console.assert(!!item.id);
 
       // Remaining item cost at the time of last commit
       const remainingCost = item.price - item.saved.value;
@@ -914,7 +1029,7 @@ function project(state, toTime) {
   return { timeOfNextNonlinearity };
 }
 
-function getAllocatedRate(budget) {
+function getAllocatedRate(budget: BudgetAmount) {
   if (budget.unit === '/month')
     return budget.dollars * 12 / 365.25;
   else
@@ -947,7 +1062,7 @@ function redistributeItemClick(event) {
 function editItemNoteClick(event) {
   updateState();
 
-  const item = domDataAttachments.get(event.target.closest(".item"));
+  const item = domDataAttachments.get(event.target.closest(".item")) as Item;
 
   const dialogContentEl = document.createElement('div');
   dialogContentEl.classList.add('edit-note-dialog');
@@ -986,8 +1101,7 @@ function purchaseItemClick(event) {
 
   updateState();
 
-  const item = domDataAttachments.get(event.target.closest(".item"));
-  const list = domDataAttachments.get(event.target.closest(".list"));
+  const item = domDataAttachments.get(event.target.closest(".item")) as Item;
 
   const dialogContentEl = document.createElement('div');
   dialogContentEl.classList.add('purchase-dialog');
@@ -1207,7 +1321,7 @@ function makeEditable(el, { read, write, requiresRender = false }) {
 }
 
 function navListItemClick(event) {
-  const list = domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest(".nav-item"));
+  const list = (domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest(".nav-item"))) as List;
 
   const index = window.state.lists.indexOf(list);
   window.currentListIndex = index;
@@ -1220,7 +1334,7 @@ function beginEdit(el) {
 
   window.isEditing = true;
   window.elementBeingEdited = el;
-  // The nonnlinearities don't update until we finish editing, so in case the
+  // The nonlinearities don't update until we finish editing, so in case the
   // user leaves the edit in progress, we cancel after 1 minute of inactivity
   window.editingTimeout = setTimeout(editTimeout, 60000);
 }
@@ -1336,8 +1450,8 @@ function itemDrop(event) {
 
   event.dataTransfer.dropEffect = 'move';
 
-  const list = domDataAttachments.get(event.target.closest('.list'));
-  const targetItem = domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest('.item'));
+  const list = domDataAttachments.get(event.target.closest('.list')) as List;
+  const targetItem = (domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest('.item'))) as Item;
 
   addUserAction({
     type: 'ItemMove',
@@ -1372,15 +1486,15 @@ function createSmileySvg() {
 
   const leftEye = svg.appendChild(document.createElementNS(svgNS, 'circle'));
   leftEye.classList.add('eye');
-  leftEye.setAttribute('r', (2).toString());
-  leftEye.setAttribute('cx', (-4.5).toString());
-  leftEye.setAttribute('cy', (-5).toString());
+  leftEye.setAttribute('r', '2');
+  leftEye.setAttribute('cx', '-4.5');
+  leftEye.setAttribute('cy', '-5');
 
   const rightEye = svg.appendChild(document.createElementNS(svgNS, 'circle'));
   rightEye.classList.add('eye');
-  rightEye.setAttribute('r', (2).toString());
-  rightEye.setAttribute('cx', (4.5).toString());
-  rightEye.setAttribute('cy', (-5).toString());
+  rightEye.setAttribute('r', '2');
+  rightEye.setAttribute('cx', '4.5');
+  rightEye.setAttribute('cy', '-5');
 
   const mouth = svg.appendChild(document.createElementNS(svgNS, 'path'));
   mouth.classList.add('mouth');
@@ -1437,7 +1551,7 @@ function createMenuButtonSvg() {
   return svg;
 }
 
-function createMenu(content) {
+function createMenu(content: (menu: { setIcon(icon: Element): void, newItem(): HTMLElement }) => void) {
   const menuContainerEl = document.createElement('div');
   menuContainerEl.classList.add('menu-container');
 
@@ -1455,7 +1569,7 @@ function createMenu(content) {
 
   content({
     setIcon: icon => menuButtonEl.appendChild(icon),
-    newItem() {
+    newItem(): HTMLElement {
       const menuItemEl = menuItemsEl.appendChild(document.createElement('li'));
       menuItemEl.classList.add('menu-item');
       return menuItemEl;
@@ -1762,7 +1876,7 @@ function selectAllInContentEditable(el) {
 }
 
 // https://stackoverflow.com/a/2117523
-function uuidv4() {
+function uuidv4(): Uuid {
   return (([1e7] as any)+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
     (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
   );
@@ -1781,9 +1895,16 @@ function addUserAction(action) {
 // Mutates `state` to include the effect of the given action, unless
 // `skipEffect` is true, in which case the hash will be updated but no effect on
 // the state lists.
-function foldAction(state, action, skipEffect = false) {
-  action.id ??= uuidv4();
-  action.time ??= serializeDate(Date.now());
+function foldAction(inputState: State | InitialState, newAction: Action | NewAction, skipEffect = false): State {
+  const state = inputState as State;
+
+  const action = {
+    id: uuidv4(),
+    time: serializeDate(Date.now()),
+    hash: undefined as any, // Will add in a moment
+    ...newAction
+  } as Action;
+
   const time = deserializeDate(action.time);
 
   project(state, time);
@@ -1804,7 +1925,7 @@ function foldAction(state, action, skipEffect = false) {
 
   state.actions.push(action);
 
-    if (skipEffect) {
+  if (skipEffect) {
     return state;
   }
 
@@ -1829,7 +1950,14 @@ function foldAction(state, action, skipEffect = false) {
       break;
     }
     case 'ListNew': {
-      state.lists.push({ id: action.id, name: action.name });
+      // TODO: Make pure
+      state.lists.push({ id: action.id,
+        name: action.name,
+        items: [],
+        budget: { dollars: 0, unit: '/month' },
+        kitty: { value: 0, rate: 0 },
+        purchaseHistory: []
+      });
       break;
     }
     case 'ListDelete': {
@@ -1839,11 +1967,13 @@ function foldAction(state, action, skipEffect = false) {
     }
     case 'ListSetName': {
       const list = findList(action.listId);
+      // TODO: Make pure
       if (list) list.name = action.newName;
       break;
     }
     case 'ListSetBudget': {
       const list = findList(action.listId);
+      // TODO: Make pure
       if (list) Object.assign(list.budget, action.budget);
       break;
     }
@@ -1853,7 +1983,12 @@ function foldAction(state, action, skipEffect = false) {
       break;
     }
     case 'ItemNew': {
-      findList(action.listId)?.items?.push({ id: action.id });
+      findList(action.listId)?.items?.push({
+        id: action.id,
+        name: undefined,
+        price: 0,
+        saved: { value: 0, rate: 0 },
+      });
       break;
     }
     case 'ItemMove': {
@@ -1904,7 +2039,6 @@ function foldAction(state, action, skipEffect = false) {
     case 'ItemSetNote': {
       const item = findItem(action.itemId)?.item;
       if (item) item.note = action.note;
-      if (item) item.description = action.note; // TODO: Remove this after a while
       break;
     }
     case 'ItemPurchase': {
@@ -1954,10 +2088,10 @@ function foldAction(state, action, skipEffect = false) {
 }
 
 // https://stackoverflow.com/a/33486055
-function md5Hash(d){var r = M(V(Y(X(d),8*d.length)));return r.toLowerCase()};function M(d){for(var _,m="0123456789ABCDEF",f="",r=0;r<d.length;r++)_=d.charCodeAt(r),f+=m.charAt(_>>>4&15)+m.charAt(15&_);return f}function X(d){for(var _=Array(d.length>>2),m=0;m<_.length;m++)_[m]=0;for(m=0;m<8*d.length;m+=8)_[m>>5]|=(255&d.charCodeAt(m/8))<<m%32;return _}function V(d){for(var _="",m=0;m<32*d.length;m+=8)_+=String.fromCharCode(d[m>>5]>>>m%32&255);return _}function Y(d,_){d[_>>5]|=128<<_%32,d[14+(_+64>>>9<<4)]=_;for(var m=1732584193,f=-271733879,r=-1732584194,i=271733878,n=0;n<d.length;n+=16){var h=m,t=f,g=r,e=i;f=md5_ii(f=md5_ii(f=md5_ii(f=md5_ii(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_ff(f=md5_ff(f=md5_ff(f=md5_ff(f,r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+0],7,-680876936),f,r,d[n+1],12,-389564586),m,f,d[n+2],17,606105819),i,m,d[n+3],22,-1044525330),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+4],7,-176418897),f,r,d[n+5],12,1200080426),m,f,d[n+6],17,-1473231341),i,m,d[n+7],22,-45705983),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+8],7,1770035416),f,r,d[n+9],12,-1958414417),m,f,d[n+10],17,-42063),i,m,d[n+11],22,-1990404162),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+12],7,1804603682),f,r,d[n+13],12,-40341101),m,f,d[n+14],17,-1502002290),i,m,d[n+15],22,1236535329),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+1],5,-165796510),f,r,d[n+6],9,-1069501632),m,f,d[n+11],14,643717713),i,m,d[n+0],20,-373897302),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+5],5,-701558691),f,r,d[n+10],9,38016083),m,f,d[n+15],14,-660478335),i,m,d[n+4],20,-405537848),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+9],5,568446438),f,r,d[n+14],9,-1019803690),m,f,d[n+3],14,-187363961),i,m,d[n+8],20,1163531501),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+13],5,-1444681467),f,r,d[n+2],9,-51403784),m,f,d[n+7],14,1735328473),i,m,d[n+12],20,-1926607734),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+5],4,-378558),f,r,d[n+8],11,-2022574463),m,f,d[n+11],16,1839030562),i,m,d[n+14],23,-35309556),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+1],4,-1530992060),f,r,d[n+4],11,1272893353),m,f,d[n+7],16,-155497632),i,m,d[n+10],23,-1094730640),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+13],4,681279174),f,r,d[n+0],11,-358537222),m,f,d[n+3],16,-722521979),i,m,d[n+6],23,76029189),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+9],4,-640364487),f,r,d[n+12],11,-421815835),m,f,d[n+15],16,530742520),i,m,d[n+2],23,-995338651),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+0],6,-198630844),f,r,d[n+7],10,1126891415),m,f,d[n+14],15,-1416354905),i,m,d[n+5],21,-57434055),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+12],6,1700485571),f,r,d[n+3],10,-1894986606),m,f,d[n+10],15,-1051523),i,m,d[n+1],21,-2054922799),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+8],6,1873313359),f,r,d[n+15],10,-30611744),m,f,d[n+6],15,-1560198380),i,m,d[n+13],21,1309151649),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+4],6,-145523070),f,r,d[n+11],10,-1120210379),m,f,d[n+2],15,718787259),i,m,d[n+9],21,-343485551),m=safe_add(m,h),f=safe_add(f,t),r=safe_add(r,g),i=safe_add(i,e)}return Array(m,f,r,i)}function md5_cmn(d,_,m,f,r,i){return safe_add(bit_rol(safe_add(safe_add(_,d),safe_add(f,i)),r),m)}function md5_ff(d,_,m,f,r,i,n){return md5_cmn(_&m|~_&f,d,_,r,i,n)}function md5_gg(d,_,m,f,r,i,n){return md5_cmn(_&f|m&~f,d,_,r,i,n)}function md5_hh(d,_,m,f,r,i,n){return md5_cmn(_^m^f,d,_,r,i,n)}function md5_ii(d,_,m,f,r,i,n){return md5_cmn(m^(_|~f),d,_,r,i,n)}function safe_add(d,_){var m=(65535&d)+(65535&_);return(d>>16)+(_>>16)+(m>>16)<<16|65535&m}function bit_rol(d,_){return d<<_|d>>>32-_}
+function md5Hash(d: string): Md5Hash {var r = M(V(Y(X(d),8*d.length)));return r.toLowerCase()};function M(d){for(var _,m="0123456789ABCDEF",f="",r=0;r<d.length;r++)_=d.charCodeAt(r),f+=m.charAt(_>>>4&15)+m.charAt(15&_);return f}function X(d){for(var _=Array(d.length>>2),m=0;m<_.length;m++)_[m]=0;for(m=0;m<8*d.length;m+=8)_[m>>5]|=(255&d.charCodeAt(m/8))<<m%32;return _}function V(d){for(var _="",m=0;m<32*d.length;m+=8)_+=String.fromCharCode(d[m>>5]>>>m%32&255);return _}function Y(d,_){d[_>>5]|=128<<_%32,d[14+(_+64>>>9<<4)]=_;for(var m=1732584193,f=-271733879,r=-1732584194,i=271733878,n=0;n<d.length;n+=16){var h=m,t=f,g=r,e=i;f=md5_ii(f=md5_ii(f=md5_ii(f=md5_ii(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_ff(f=md5_ff(f=md5_ff(f=md5_ff(f,r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+0],7,-680876936),f,r,d[n+1],12,-389564586),m,f,d[n+2],17,606105819),i,m,d[n+3],22,-1044525330),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+4],7,-176418897),f,r,d[n+5],12,1200080426),m,f,d[n+6],17,-1473231341),i,m,d[n+7],22,-45705983),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+8],7,1770035416),f,r,d[n+9],12,-1958414417),m,f,d[n+10],17,-42063),i,m,d[n+11],22,-1990404162),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+12],7,1804603682),f,r,d[n+13],12,-40341101),m,f,d[n+14],17,-1502002290),i,m,d[n+15],22,1236535329),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+1],5,-165796510),f,r,d[n+6],9,-1069501632),m,f,d[n+11],14,643717713),i,m,d[n+0],20,-373897302),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+5],5,-701558691),f,r,d[n+10],9,38016083),m,f,d[n+15],14,-660478335),i,m,d[n+4],20,-405537848),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+9],5,568446438),f,r,d[n+14],9,-1019803690),m,f,d[n+3],14,-187363961),i,m,d[n+8],20,1163531501),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+13],5,-1444681467),f,r,d[n+2],9,-51403784),m,f,d[n+7],14,1735328473),i,m,d[n+12],20,-1926607734),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+5],4,-378558),f,r,d[n+8],11,-2022574463),m,f,d[n+11],16,1839030562),i,m,d[n+14],23,-35309556),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+1],4,-1530992060),f,r,d[n+4],11,1272893353),m,f,d[n+7],16,-155497632),i,m,d[n+10],23,-1094730640),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+13],4,681279174),f,r,d[n+0],11,-358537222),m,f,d[n+3],16,-722521979),i,m,d[n+6],23,76029189),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+9],4,-640364487),f,r,d[n+12],11,-421815835),m,f,d[n+15],16,530742520),i,m,d[n+2],23,-995338651),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+0],6,-198630844),f,r,d[n+7],10,1126891415),m,f,d[n+14],15,-1416354905),i,m,d[n+5],21,-57434055),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+12],6,1700485571),f,r,d[n+3],10,-1894986606),m,f,d[n+10],15,-1051523),i,m,d[n+1],21,-2054922799),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+8],6,1873313359),f,r,d[n+15],10,-30611744),m,f,d[n+6],15,-1560198380),i,m,d[n+13],21,1309151649),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+4],6,-145523070),f,r,d[n+11],10,-1120210379),m,f,d[n+2],15,718787259),i,m,d[n+9],21,-343485551),m=safe_add(m,h),f=safe_add(f,t),r=safe_add(r,g),i=safe_add(i,e)}return Array(m,f,r,i)}function md5_cmn(d,_,m,f,r,i){return safe_add(bit_rol(safe_add(safe_add(_,d),safe_add(f,i)),r),m)}function md5_ff(d,_,m,f,r,i,n){return md5_cmn(_&m|~_&f,d,_,r,i,n)}function md5_gg(d,_,m,f,r,i,n){return md5_cmn(_&f|m&~f,d,_,r,i,n)}function md5_hh(d,_,m,f,r,i,n){return md5_cmn(_^m^f,d,_,r,i,n)}function md5_ii(d,_,m,f,r,i,n){return md5_cmn(m^(_|~f),d,_,r,i,n)}function safe_add(d,_){var m=(65535&d)+(65535&_);return(d>>16)+(_>>16)+(m>>16)<<16|65535&m}function bit_rol(d,_){return d<<_|d>>>32-_}
 
 // Build a new State from the given list of actions
-function buildStateFromActions(id, actions) {
+function buildStateFromActions(id: StateId, actions: Action[]): State {
   // We run a first look-ahead pass to tally all the undo/redo actions to see
   // which actions should not take be taken into effect.
   const skip = new Set();
@@ -1976,10 +2110,10 @@ function buildStateFromActions(id, actions) {
 
   return actions.reduce(
     (state, action) => foldAction(state, action, skip.has(action.id)),
-    { ...emptyState(), id });
+    { ...emptyState(), id }) as State;
 }
 
-function emptyState() {
+function emptyState(): InitialState {
   return {
     actions: [],
     lists: [],
@@ -1987,11 +2121,11 @@ function emptyState() {
   }
 }
 
-function newState(id) {
+function newState(id: Uuid): State {
   return foldAction(emptyState(), { type: 'New', id });
 }
 
-function deepClone(obj) {
+function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
@@ -2071,8 +2205,9 @@ function upgradeStateFormat(state) {
     const time = state.time;
     const snapshot = {
       id: state.id,
+      time: state.time,
       lists: state.lists.map(list => ({
-        id: list.id,
+        id: list.id ?? uuidv4(),
         name: list.name,
         budget: {
           dollars: list.allocated.dollars,
@@ -2083,14 +2218,14 @@ function upgradeStateFormat(state) {
           rate: list.overflow.rate
         },
         purchaseHistory: list.purchaseHistory.map(p => ({
-          id: p.id,
+          id: p.id ?? uuidv4(),
           name: p.name,
           priceEstimate: p.priceEstimate,
           price: p.price,
           purchaseDate: p.purchaseDate
         })),
         items: list.items.map(i => ({
-          id: i.name,
+          id: i.name ?? uuidv4(),
           price: i.price,
           saved: { value: i.saved.value, rate: i.saved.rate },
           note: i.note ?? i.description
@@ -2228,8 +2363,8 @@ function renderSquirrelGraphic() {
   const svg = document.createElementNS(svgNS, 'svg');
   svg.classList.add('squirrel-graphic');
   svg.setAttribute('viewBox', `${internalX} ${internalY} ${internalSize} ${internalSize}`);
-  svg.setAttribute('width', (50).toString());
-  svg.setAttribute('height', (50).toString());
+  svg.setAttribute('width', '50');
+  svg.setAttribute('height', '50');
   svg.style.display = 'block';
 
   const path = svg.appendChild(document.createElementNS(svgNS, 'path'));
