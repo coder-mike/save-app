@@ -1,3 +1,6 @@
+// WORKAROUND for immer.js esm (see https://github.com/immerjs/immer/issues/557)
+(window as any).process = { env: { NODE_ENV: "production" } };
+
 import produce from "immer"
 
 const svgNS = 'http://www.w3.org/2000/svg';
@@ -14,29 +17,27 @@ type StateId = Uuid;
 type ListId = Uuid;
 type ItemId = Uuid;
 
-// The `State` type is the core type, which is currently the object (the only
-// object) that's saved to the server.
-//
-// It holds the two pieces: the snapshot and the history. The history, in terms
-// of the "event-sourced" model, is the full set of immutable actions that led
-// up to the final state. The "Snapshot" is the result of reducing over the
-// history.
-type State = StateSnapshot & StateHistory & {
-  id: StateId;
-  hash: Md5Hash;
-}
+// https://github.com/microsoft/TypeScript/issues/39556#issuecomment-656925230
+type UnionOmit<T, K extends string | number | symbol> = T extends unknown ? Omit<T, K> : never;
 
 // The non-event-sourced part of the state
 interface StateSnapshot {
+  id: StateId;
   lists: List[];
   time: ISO8601Timestamp;
   nextNonlinearity: ISO8601Timestamp;
+  // The hash is computed from the history that lead up to the snapshot, not
+  // from the content of the snapshot. It is the hash of the last action folded
+  // into the snapshot (see calculateActionHash)
+  hash: Md5Hash;
 }
 
-interface StateHistory {
-  // List of "event-sourced" events, here-named actions. This is an append-only
-  // list, and individual actions will never be mutated.
-  actions: Action[];
+type StateHistory = Action[];
+
+// The structure saved to the database or localStorage, combining both the list
+// of actions and the latest snapshot that results from accumulating the actions.
+interface StateBlobStructure extends StateSnapshot {
+  actions: StateHistory;
 }
 
 interface List {
@@ -108,8 +109,11 @@ type Action =
   | UndoAction
   | RedoAction
 
-// A new action is an action that hasn't yet been added to the action history
-type NewAction = Omit<Action, 'id' | 'time' | 'hash'>;
+// A new action is an action that hasn't yet been added to the action history.
+// This is for convenience, since we can have a common place where the id, time,
+// and hash are computed
+type NewAction = UnionOmit<Action, 'id' | 'time' | 'hash'>;
+type ActionWithoutHash = UnionOmit<Action, 'hash'>;
 
 // Actions
 
@@ -134,15 +138,33 @@ interface ItemRedistributeMoney extends ItemActionBase { type: 'ItemRedistribute
 interface UndoAction extends ActionBase { type: 'Undo', actionIdToUndo: ActionId }
 interface RedoAction extends ActionBase { type: 'Redo', actionIdToRedo: ActionId }
 
-interface Global {
+class Globals {
   mode: 'electron-local' | 'web-local' | 'online';
+
+  // The "state", as it used to be called, is now split into the history and
+  // snapshot parts. The snapshot is immutable, but the history list is mutable
+  // for performance reasons since the common thing we do with it is "append one
+  // action". Actions are individually immutable when they're part of the
+  // history.
+  get state(): StateBlobStructure {
+    return {
+      ...this.snapshot,
+      actions: this.actions
+    }
+  }
+  set state(value: StateBlobStructure) {
+    const { actions, ...latestState } = value;
+    this.snapshot = Object.freeze(latestState);
+    this.actions = actions.map(a => Object.freeze(a));
+  }
+  snapshot: StateSnapshot;
+  actions: StateHistory;
 
   userInfo: any;
   saveState: any;
   loadState: any;
 
   debugMode: boolean;
-  state: State;
   nextNonlinearity: Timestamp;
   lastCommitTime: Timestamp;
   currentListIndex: number;
@@ -168,7 +190,7 @@ const emptyHash = md5Hash('');
 // another object because in TypeScript I found it difficult to merge globals
 // into the Window. I didn't want to make them lexical bindings because this way
 // it's obvious that it's referencing global state.
-const g = {} as Global;
+const g = new Globals();
 
 declare const require: any;
 
@@ -216,7 +238,7 @@ g.loadState = async (renderOnChange) => {
       case 'web-local': {
         const localStorageContent = localStorage.getItem('squirrel-away-state');
         if (!localStorageContent) {
-          g.state = newState(uuidv4());
+          g.state = newState();
           return;
         }
         g.state = upgradeStateFormat(JSON.parse(localStorageContent));
@@ -230,7 +252,7 @@ g.loadState = async (renderOnChange) => {
     }
   } catch (e) {
     console.error(e);
-    g.state = newState(uuidv4());
+    g.state = newState();
   }
 }
 
@@ -246,7 +268,9 @@ window.addEventListener('load', async() => {
   // It's useful here to reconstruct the state from the actions list. For one
   // thing, if there are earlier bugs in the reducer that get fixed later,
   // running the re-reducer at startup means we recompute the correct end state.
-  g.state = buildStateFromActions(g.state.id, g.state.actions);
+  // Similarly, if there are new bugs in the reducer, we find out sooner rather
+  // than later.
+  g.snapshot = reduceActions(g.actions);
 
   updateState();
   render();
@@ -350,16 +374,16 @@ function undo() {
    *
    *   3. Folding an Undo action (in `foldAction`) just recomputes the new state
    *      by re-running the reducer over the state using
-   *      `buildStateFromActions`. If this becomes a performance bottleneck in
+   *      `reduceActions`. If this becomes a performance bottleneck in
    *      future, it's easy to add checkpointing so not the whole history needs
    *      to be visited.
    *
-   *   4. `buildStateFromActions` runs 2 passes. The first pass computes all the
+   *   4. `reduceActions` runs 2 passes. The first pass computes all the
    *      actions to skip because they were "undone". The second pass reduces
    *      over the non-undo actions using `foldAction`.
    *
-   * Note that `foldAction` and `buildStateFromActions` are in some sense
-   * mutually recursive, but `buildStateFromActions` suppresses the effects of
+   * Note that `foldAction` and `reduceActions` are in some sense
+   * mutually recursive, but `reduceActions` suppresses the effects of
    * `Undo` actions in `foldAction` by running the initial pass. The naive
    * implementation may have had exponential asymptotic performance (exponential
    * to the number of undos in the history) since later undos need to
@@ -372,7 +396,7 @@ function undo() {
   if (g.undoIndex <= 0) return;
 
   const actionIdToUndo = g.undoHistory[--g.undoIndex];
-  g.state = foldNewAction(g.state, { type: 'Undo', actionIdToUndo });
+  doAction({ type: 'Undo', actionIdToUndo });
 
   updateState();
   save();
@@ -385,7 +409,7 @@ function redo() {
 
   // Restore to the state
   const actionIdToRedo = g.undoHistory[g.undoIndex++];
-  g.state = foldNewAction(g.state, { type: 'Redo', actionIdToRedo });
+  doAction({ type: 'Redo', actionIdToRedo });
 
   updateState();
   save();
@@ -919,7 +943,7 @@ function updateState() {
 
   // Need at least one list to render
   if (g.state.lists.length < 1) {
-    g.state = foldNewAction(g.state, { type: 'ListNew', id: uuidv4(), name: 'Wish list' });
+    doAction({ type: 'ListNew', name: 'Wish list' });
   }
 
   g.state = {
@@ -1770,6 +1794,10 @@ function signInClick() {
     const result = await apiRequest('login', { email, password });
     if (result.success) {
       g.mode = 'online';
+      // When we sign in, we STOP using 'squirrel-away-state' and instead use
+      // 'squirrel-away-online-state'. We preserve the original as a completely
+      // separate state. The use case here is that your friend logs into your
+      // account -- you don't want your friend's state to be merged into yours.
       g.state = parseState(localStorage.getItem('squirrel-away-online-state'));
       g.state = mergeStates(g.state, result.state);
       g.userInfo = result.userInfo;
@@ -1779,6 +1807,19 @@ function signInClick() {
     } else {
       errorNotice.textContent = 'Failed to log in: ' + (result.reason ?? '')
     }
+  }
+}
+
+function mergeStates(state1: StateBlobStructure, state2: StateBlobStructure): StateBlobStructure {
+  const actions = mergeHistories(state1.actions, state2.actions);
+
+  // An optimization for fast-forward merges (common case)
+  if (actions === state1.actions) return state1;
+  if (actions === state2.actions) return state2;
+
+  return {
+    ...reduceActions(actions),
+    actions
   }
 }
 
@@ -1902,8 +1943,8 @@ function uuidv4(): Uuid {
 }
 
 // Folds the action into the state and records it in the undo history
-function addUserAction(action) {
-  g.state = foldAction(g.state, action);
+function addUserAction(newAction: NewAction) {
+  const action = doAction(newAction);
 
   g.undoHistory[g.undoIndex++] = action.id;
   // Any future history (for redo) becomes invalid at this point
@@ -1911,19 +1952,25 @@ function addUserAction(action) {
     g.undoHistory = g.undoHistory.slice(0, g.undoIndex);
 }
 
-function foldNewAction(state: State, newAction: Action | NewAction): State {
-  return foldAction(state, {
+function doAction(newAction: NewAction) {
+  const actionWithoutHash: ActionWithoutHash = {
     id: uuidv4(),
     time: serializeDate(Date.now()),
-    hash: undefined as any,
     ...newAction,
-  } as Action);
+  };
+
+  const action = Object.freeze({
+    ...actionWithoutHash,
+    hash: calculateActionHash(g.snapshot.hash, actionWithoutHash)
+  }) as Action;
+
+  g.snapshot = foldAction(g.snapshot, action, g.actions);
+  g.actions.push(action);
+
+  return action;
 }
 
-// Folds the effect of the given action into the given state, unless
-// `skipEffect` is true, in which case the hash will be updated but no effect on
-// the state lists. Note that the hash for the action is recalculated.
-function foldAction(state: State, action: Action, skipEffect = false): State {
+function calculateActionHash(prevActionHash: Md5Hash, action: ActionWithoutHash): Md5Hash {
   // The hash is like a git hash, if "actions" are like commits. The hash allows
   // us to quickly merge two histories or determine if there's a conflict (a
   // fork in the history). Note that "JSON.stringify" here is technically not
@@ -1932,186 +1979,197 @@ function foldAction(state: State, action: Action, skipEffect = false): State {
   // for it to produce a different hash for the same history since it will just
   // fall back to a full history merge (the hash is just used as an
   // optimization).
-  //
-  // Note that the state hash isn't actually a hash of the full state, but a
-  // hash that includes the whole action history, which fully determines the
-  // state, excluding differences in the projected time.
-  const { hash, ...contentToHash } = action;
-  state.hash = action.hash = md5Hash(JSON.stringify([state.hash, contentToHash]));
+  const { hash, ...contentToHash } = action as Action;
+  return md5Hash(JSON.stringify([prevActionHash, contentToHash]));
+}
 
-  if (skipEffect) {
-    return state;
-  }
+// Folds the effect of the given action into the given state, unless
+// `skipEffect` is true, in which case the hash will be updated but no effect on
+// the state lists. Note that the hash for the action must be correct.
+function foldAction(
+  snapshot: StateSnapshot,
+  action: Action,
+  prevActions: Iterable<Action>,
+  skipEffect = false): StateSnapshot
+{
+  return produce(snapshot, snapshot => {
+    // At this point, we already expect the hash to match
+    console.assert(action.hash === calculateActionHash(snapshot.hash, action), 'Hash mismatch');
 
-  const time = deserializeDate(action.time);
-  state = {
-    ...state,
-    ...project(state, time)
-  };
+    // Incorporate hash into the state
+    snapshot.hash = action.hash;
 
-  const findList = id => state.lists.find(l => l.id === id);
-  const findItem = id => {
-    for (const list of state.lists)
-      for (const item of list.items)
-        if (item.id === id) return { list, item };
-  }
+    if (skipEffect) {
+      return;
+    }
 
-  switch (action.type) {
-    case 'New': {
-      state.id = action.id;
-      state.time = action.time;
-      state.lists = [];
-      break;
-    }
-    case 'MigrateState': {
-      // Migrate from a pre-event-sourced state structure
-      Object.assign(state, deepClone(action.state));
-      state.time = action.time;
-      break;
-    }
-    case 'ListNew': {
-      // TODO: Make pure
-      state.lists.push({ id: action.id,
-        name: action.name,
-        items: [],
-        budget: { dollars: 0, unit: '/month' },
-        kitty: { value: 0, rate: 0 },
-        purchaseHistory: []
-      });
-      break;
-    }
-    case 'ListDelete': {
-      const index = state.lists.findIndex(list => list.id === action.listId);
-      if (index != -1) state.lists.splice(index, 1);
-      break;
-    }
-    case 'ListSetName': {
-      const list = findList(action.listId);
-      // TODO: Make pure
-      if (list) list.name = action.newName;
-      break;
-    }
-    case 'ListSetBudget': {
-      const list = findList(action.listId);
-      // TODO: Make pure
-      if (list) Object.assign(list.budget, action.budget);
-      break;
-    }
-    case 'ListInjectMoney': {
-      const list = findList(action.listId);
-      if (list) list.kitty.value += action.amount;
-      break;
-    }
-    case 'ItemNew': {
-      findList(action.listId)?.items?.push({
-        id: action.id,
-        name: undefined,
-        price: 0,
-        saved: { value: 0, rate: 0 },
-      });
-      break;
-    }
-    case 'ItemMove': {
-      const source = findItem(action.itemId);
-      const targetList = findList(action.targetListId);
-      if (!source || !targetList) break;
+    const time = deserializeDate(action.time);
+    snapshot = {
+      ...snapshot,
+      ...project(snapshot, time)
+    };
 
-      const sourceIndex = source.list.items.indexOf(source.item);
-      console.assert(sourceIndex != -1);
-      const targetIndex = Math.max(Math.min(action.targetIndex, targetList.items.length - 1), 0);
-
-      source.list.items.splice(sourceIndex, 1);
-      targetList.items.splice(targetIndex, 0, source.item);
-      break;
+    const findList = id => snapshot.lists.find(l => l.id === id);
+    const findItem = id => {
+      for (const list of snapshot.lists)
+        for (const item of list.items)
+          if (item.id === id) return { list, item };
     }
-    case 'ItemDelete': {
-      const found = findItem(action.itemId);
-      if (!found) break;
-      const { item, list } = found;
 
-      const index = list.items.indexOf(item);
-      console.assert(index != -1);
-      list.items.splice(index, 1);
-
-      // Put the value back into the kitty
-      list.kitty.value += item.saved.value;
-      break;
-    }
-    case 'ItemSetName': {
-      const item = findItem(action.itemId)?.item;
-      if (item) item.name = action.name;
-      break;
-    }
-    case 'ItemSetPrice': {
-      const found = findItem(action.itemId);
-      if (!found) break;
-      const { item, list } = found;
-
-      item.price = action.price;
-
-      // Excess goes into the kitty
-      if (action.price < item.saved.value) {
-        list.kitty.value += item.saved.value - action.price;
-        item.saved.value = action.price;
+    switch (action.type) {
+      case 'New': {
+        snapshot.id = action.id;
+        snapshot.time = action.time;
+        snapshot.lists = [];
+        break;
       }
-      break;
-    }
-    case 'ItemSetNote': {
-      const item = findItem(action.itemId)?.item;
-      if (item) item.note = action.note;
-      break;
-    }
-    case 'ItemPurchase': {
-      const found = findItem(action.itemId);
-      if (!found) break;
-      const { list, item } = found;
+      case 'MigrateState': {
+        // Migrate from a pre-event-sourced state structure
+        Object.assign(snapshot, deepClone(action.state));
+        snapshot.time = action.time;
+        break;
+      }
+      case 'ListNew': {
+        snapshot.lists.push({ id: action.id,
+          name: action.name,
+          items: [],
+          budget: { dollars: 0, unit: '/month' },
+          kitty: { value: 0, rate: 0 },
+          purchaseHistory: []
+        });
+        break;
+      }
+      case 'ListDelete': {
+        const index = snapshot.lists.findIndex(list => list.id === action.listId);
+        if (index != -1) snapshot.lists.splice(index, 1);
+        break;
+      }
+      case 'ListSetName': {
+        const list = findList(action.listId);
+        if (list) list.name = action.newName;
+        break;
+      }
+      case 'ListSetBudget': {
+        const list = findList(action.listId);
+        if (list) Object.assign(list.budget, action.budget);
+        break;
+      }
+      case 'ListInjectMoney': {
+        const list = findList(action.listId);
+        if (list) list.kitty.value += action.amount;
+        break;
+      }
+      case 'ItemNew': {
+        findList(action.listId)?.items?.push({
+          id: action.id,
+          name: undefined,
+          price: 0,
+          saved: { value: 0, rate: 0 },
+        });
+        break;
+      }
+      case 'ItemMove': {
+        const source = findItem(action.itemId);
+        const targetList = findList(action.targetListId);
+        if (!source || !targetList) break;
 
-      // Put all the money back into the kitty except which what was paid
-      list.kitty.value += item.saved.value - action.actualPrice;
+        const sourceIndex = source.list.items.indexOf(source.item);
+        console.assert(sourceIndex != -1);
+        const targetIndex = Math.max(Math.min(action.targetIndex, targetList.items.length - 1), 0);
 
-      list.purchaseHistory.push({
-        id: item.id,
-        name: item.name,
-        priceEstimate: item.price,
-        price: action.actualPrice,
-        purchaseDate: action.time
-      });
+        source.list.items.splice(sourceIndex, 1);
+        targetList.items.splice(targetIndex, 0, source.item);
+        break;
+      }
+      case 'ItemDelete': {
+        const found = findItem(action.itemId);
+        if (!found) break;
+        const { item, list } = found;
 
-      list.items.splice(list.items.indexOf(item), 1);
-      break;
+        const index = list.items.indexOf(item);
+        console.assert(index != -1);
+        list.items.splice(index, 1);
+
+        // Put the value back into the kitty
+        list.kitty.value += item.saved.value;
+        break;
+      }
+      case 'ItemSetName': {
+        const item = findItem(action.itemId)?.item;
+        if (item) item.name = action.name;
+        break;
+      }
+      case 'ItemSetPrice': {
+        const found = findItem(action.itemId);
+        if (!found) break;
+        const { item, list } = found;
+
+        item.price = action.price;
+
+        // Excess goes into the kitty
+        if (action.price < item.saved.value) {
+          list.kitty.value += item.saved.value - action.price;
+          item.saved.value = action.price;
+        }
+        break;
+      }
+      case 'ItemSetNote': {
+        const item = findItem(action.itemId)?.item;
+        if (item) item.note = action.note;
+        break;
+      }
+      case 'ItemPurchase': {
+        const found = findItem(action.itemId);
+        if (!found) break;
+        const { list, item } = found;
+
+        // Put all the money back into the kitty except which what was paid
+        list.kitty.value += item.saved.value - action.actualPrice;
+
+        list.purchaseHistory.push({
+          id: item.id,
+          name: item.name,
+          priceEstimate: item.price,
+          price: action.actualPrice,
+          purchaseDate: action.time
+        });
+
+        list.items.splice(list.items.indexOf(item), 1);
+        break;
+      }
+      case 'ItemRedistributeMoney': {
+        const found = findItem(action.itemId);
+        if (!found) break;
+        const { list, item } = found;
+
+        list.kitty.value += item.saved.value;
+        item.saved.value = 0;
+        break;
+      }
+      case 'Undo': {
+        // To go back in time to undo the action, the easiest is to just
+        // rebuild the state from scratch including the current undo action.
+        return reduceActions([...prevActions, action]);
+      }
+      case 'Redo': {
+        // As with 'Undo'
+        return reduceActions([...prevActions, action]);
+      }
     }
-    case 'ItemRedistributeMoney': {
-      const found = findItem(action.itemId);
-      if (!found) break;
-      const { list, item } = found;
 
-      list.kitty.value += item.saved.value;
-      item.saved.value = 0;
-      break;
-    }
-    case 'Undo': {
-      // To go back in time to undo the action, the easiest is to just
-      // rebuild the state from scratch including the current undo action.
-      return buildStateFromActions(state.id, state.actions);
-    }
-    case 'Redo': {
-      // As with 'Undo'
-      return buildStateFromActions(state.id, state.actions);
-    }
-  }
+    // Run another projection just to update any side effects of the action. For
+    // example, redistributing newly-available cash
+    snapshot = project(snapshot, time);
 
-  // Run another projection just to update any side effects of the action. For
-  // example, redistributing newly-available cash
-  project(state, time);
-
-  return state;
+    return snapshot;
+  })
 }
 
 // https://stackoverflow.com/a/33486055
 function md5Hash(d: string): Md5Hash {var r = M(V(Y(X(d),8*d.length)));return r.toLowerCase()};function M(d){for(var _,m="0123456789ABCDEF",f="",r=0;r<d.length;r++)_=d.charCodeAt(r),f+=m.charAt(_>>>4&15)+m.charAt(15&_);return f}function X(d){for(var _=Array(d.length>>2),m=0;m<_.length;m++)_[m]=0;for(m=0;m<8*d.length;m+=8)_[m>>5]|=(255&d.charCodeAt(m/8))<<m%32;return _}function V(d){for(var _="",m=0;m<32*d.length;m+=8)_+=String.fromCharCode(d[m>>5]>>>m%32&255);return _}function Y(d,_){d[_>>5]|=128<<_%32,d[14+(_+64>>>9<<4)]=_;for(var m=1732584193,f=-271733879,r=-1732584194,i=271733878,n=0;n<d.length;n+=16){var h=m,t=f,g=r,e=i;f=md5_ii(f=md5_ii(f=md5_ii(f=md5_ii(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_ff(f=md5_ff(f=md5_ff(f=md5_ff(f,r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+0],7,-680876936),f,r,d[n+1],12,-389564586),m,f,d[n+2],17,606105819),i,m,d[n+3],22,-1044525330),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+4],7,-176418897),f,r,d[n+5],12,1200080426),m,f,d[n+6],17,-1473231341),i,m,d[n+7],22,-45705983),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+8],7,1770035416),f,r,d[n+9],12,-1958414417),m,f,d[n+10],17,-42063),i,m,d[n+11],22,-1990404162),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+12],7,1804603682),f,r,d[n+13],12,-40341101),m,f,d[n+14],17,-1502002290),i,m,d[n+15],22,1236535329),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+1],5,-165796510),f,r,d[n+6],9,-1069501632),m,f,d[n+11],14,643717713),i,m,d[n+0],20,-373897302),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+5],5,-701558691),f,r,d[n+10],9,38016083),m,f,d[n+15],14,-660478335),i,m,d[n+4],20,-405537848),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+9],5,568446438),f,r,d[n+14],9,-1019803690),m,f,d[n+3],14,-187363961),i,m,d[n+8],20,1163531501),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+13],5,-1444681467),f,r,d[n+2],9,-51403784),m,f,d[n+7],14,1735328473),i,m,d[n+12],20,-1926607734),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+5],4,-378558),f,r,d[n+8],11,-2022574463),m,f,d[n+11],16,1839030562),i,m,d[n+14],23,-35309556),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+1],4,-1530992060),f,r,d[n+4],11,1272893353),m,f,d[n+7],16,-155497632),i,m,d[n+10],23,-1094730640),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+13],4,681279174),f,r,d[n+0],11,-358537222),m,f,d[n+3],16,-722521979),i,m,d[n+6],23,76029189),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+9],4,-640364487),f,r,d[n+12],11,-421815835),m,f,d[n+15],16,530742520),i,m,d[n+2],23,-995338651),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+0],6,-198630844),f,r,d[n+7],10,1126891415),m,f,d[n+14],15,-1416354905),i,m,d[n+5],21,-57434055),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+12],6,1700485571),f,r,d[n+3],10,-1894986606),m,f,d[n+10],15,-1051523),i,m,d[n+1],21,-2054922799),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+8],6,1873313359),f,r,d[n+15],10,-30611744),m,f,d[n+6],15,-1560198380),i,m,d[n+13],21,1309151649),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+4],6,-145523070),f,r,d[n+11],10,-1120210379),m,f,d[n+2],15,718787259),i,m,d[n+9],21,-343485551),m=safe_add(m,h),f=safe_add(f,t),r=safe_add(r,g),i=safe_add(i,e)}return Array(m,f,r,i)}function md5_cmn(d,_,m,f,r,i){return safe_add(bit_rol(safe_add(safe_add(_,d),safe_add(f,i)),r),m)}function md5_ff(d,_,m,f,r,i,n){return md5_cmn(_&m|~_&f,d,_,r,i,n)}function md5_gg(d,_,m,f,r,i,n){return md5_cmn(_&f|m&~f,d,_,r,i,n)}function md5_hh(d,_,m,f,r,i,n){return md5_cmn(_^m^f,d,_,r,i,n)}function md5_ii(d,_,m,f,r,i,n){return md5_cmn(m^(_|~f),d,_,r,i,n)}function safe_add(d,_){var m=(65535&d)+(65535&_);return(d>>16)+(_>>16)+(m>>16)<<16|65535&m}function bit_rol(d,_){return d<<_|d>>>32-_}
 
 // Build a new State from the given list of actions
-function buildStateFromActions(id: StateId, actions: Action[]): State {
+function reduceActions(actions: Action[]): StateSnapshot {
   // We run a first look-ahead pass to tally all the undo/redo actions to see
   // which actions should not take be taken into effect.
   const skip = new Set();
@@ -2129,11 +2187,18 @@ function buildStateFromActions(id: StateId, actions: Action[]): State {
   }
 
   return actions.reduce(
-    (state, action) => foldAction(state, action, skip.has(action.id)),
-    { ...emptyState(), id }) as State;
+    ({ snapshot, actions }, action) => {
+      snapshot = foldAction(snapshot, action, actions, skip.has(action.id));
+      // For performance reasons, this reducer is not strictly pure, but the
+      // mutation is local to this function (reduceActions)
+      actions.push(action);
+      return { snapshot, actions };
+    },
+    { snapshot: emptyState(), actions: new Array<Action>() }
+  ).snapshot;
 }
 
-function emptyState(): State {
+function emptyState(): StateSnapshot {
   return {
     // Note: these three fields get their initial value either from a `New`
     // action or a `MigrateState` action, which should be the first actions in
@@ -2142,19 +2207,29 @@ function emptyState(): State {
     time: serializeDate(0),
     nextNonlinearity: 'never',
 
-    actions: [],
     lists: [],
     hash: emptyHash
   }
 }
 
-function newState(id: Uuid): State {
-  return foldAction(emptyState(), {
+function newState(): StateBlobStructure {
+  const actionWithoutHash: ActionWithoutHash = {
     type: 'New',
-    id,
+    id: uuidv4(),
     time: serializeDate(Date.now()),
-    hash: ''
+  };
+
+  const action: Action = Object.freeze({
+    ...actionWithoutHash,
+    hash: calculateActionHash(emptyHash, actionWithoutHash)
   });
+
+  const snapshot = foldAction(emptyState(), action, []);
+
+  return {
+    ...snapshot,
+    actions: [action]
+  }
 }
 
 function deepClone<T>(obj: T): T {
@@ -2170,7 +2245,7 @@ function occasionallyRebuild() {
     // rather than later if there's a problem building state from the actions.
     if (!g.dialogBackgroundEl && !g.isEditing && g.state.actions) {
       console.log('Rebuilding the list state from the actions')
-      g.state = buildStateFromActions(g.state.id, g.state.actions);
+      g.snapshot = reduceActions(g.actions);
       g.lastCommitTime = deserializeDate(g.state.time);
 
       render();
@@ -2178,35 +2253,36 @@ function occasionallyRebuild() {
   }, 60_000);
 }
 
-function mergeStates(...states) {
-  if (states.length < 2) return states[0];
+function mergeHistories(...histories: StateHistory[]): StateHistory {
+  if (histories.length < 2) return histories[0];
 
-  const [state1, state2, ...rest] = states;
-  if (rest.length > 0) return mergeStates(mergeStates(state1, state2), ...rest);
+  const [history1, history2, ...rest] = histories;
+  if (rest.length > 0) return mergeHistories(mergeHistories(history1, history2), ...rest);
 
-  if (!state2) return state1;
-  if (!state1) return state2;
+  if (!history2) return history1;
+  if (!history1) return history2;
 
-  // We merge based on the actions, so if either don't have actions then we don't have anything to merge on
-  upgradeStateFormat(state1);
-  upgradeStateFormat(state2);
+  const history1Hash = historyHash(history1);
+  const history2Hash = historyHash(history2);
 
   // Special case: if the hash is the same, the content is the same
-  if (state1.hash === state2.hash) return state1;
+  if (history1Hash === history2Hash) return history1;
 
   // Special case: if one state can do a fast-forward to reach the other state
-  if (state1.actions.some(a => a.hash === state2.hash)) return state1;
-  if (state2.actions.some(a => a.hash === state1.hash)) return state2;
+  if (history1.some(a => a.hash === history2Hash)) return history1;
+  if (history2.some(a => a.hash === history1Hash)) return history2;
 
-  const itLeft = state1.actions[Symbol.iterator]();
-  const itRight = state2.actions[Symbol.iterator]();
+  const itLeft = history1[Symbol.iterator]();
+  const itRight = history2[Symbol.iterator]();
 
   let left = itLeft.next();
   let right = itRight.next();
   let newState = emptyState();
+  let hash = emptyHash;
+  const result: StateHistory = [];
 
   while (!left.done || !right.done) {
-    let pickAction;
+    let pickAction: Action;
     if (!left.done && !right.done && left.value.id === right.value.id) {
       // Consume both, since they're the same action (the most common case)
       pickAction = left.value;
@@ -2221,14 +2297,26 @@ function mergeStates(...states) {
       pickAction = right.value;
       right = itRight.next();
     }
-    newState = foldAction(newState, pickAction);
+
+    // Make sure the hash is right
+    hash = calculateActionHash(hash, pickAction);
+    if (hash !== pickAction.hash) {
+      pickAction = Object.freeze({ ...pickAction, hash });
+    }
+    hash = pickAction.hash;
+
+    result.push(pickAction);
   }
 
-  return newState;
+  return result;
+}
+
+function historyHash(history: StateHistory) {
+  return history[history.length - 1]?.hash ?? emptyHash;
 }
 
 // TODO: Remove this at some point
-function upgradeStateFormat(state: State) {
+function upgradeStateFormat(state: StateBlobStructure): StateBlobStructure {
   if (!state) return state;
   // For backwards compatibility with states that weren't created using an
   // actions list, we need to set up an actions list that is equivalent to the
@@ -2237,6 +2325,8 @@ function upgradeStateFormat(state: State) {
     const id = state.id;
     const time = state.time;
     const snapshot: StateSnapshot = {
+      id: state.id,
+      hash: state.hash,
       time: state.time,
       nextNonlinearity: state.nextNonlinearity,
       lists: state.lists.map(list => ({
@@ -2266,13 +2356,20 @@ function upgradeStateFormat(state: State) {
       }))
     };
 
-    return foldAction(emptyState(), {
+    const actions: Action[] = [{
       type: 'MigrateState',
       id,
       time,
-      hash: '',
+      hash: '', // Will be populated by the fold
       state: snapshot
-    });
+    }]
+
+    const newState = reduceActions(actions);
+
+    return {
+      ...newState,
+      actions
+    }
   }
   return state;
 }
@@ -2356,8 +2453,8 @@ function parseState(json) {
   return json && upgradeStateFormat(JSON.parse(json));
 }
 
-function sameState(state1, state2) {
-  return state1?.hash === state2?.hash;
+function sameState(state1: StateSnapshot, state2: StateSnapshot) {
+  return state1.hash === state2.hash;
 }
 
 function hideMobileNav() {

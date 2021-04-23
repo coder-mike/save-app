@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "none",
+    "module": "ES2020",
     "moduleResolution": "Node",
     "allowJs": true,
     "noImplicitAny": false,
@@ -10,8 +10,8 @@
     "strictNullChecks": false,
     "lib": ["ES2020", "DOM"],
     "target": "ES2020",
-    "outFile": "public/script.js"
+    "esModuleInterop": false
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.test.ts"]
+  "exclude": ["**/*.test.ts"]
 }
