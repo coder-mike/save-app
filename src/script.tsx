@@ -1,3 +1,71 @@
+
+/*
+# Design Notes
+
+## Event Sourcing and Immutability
+
+This app uses an "event sourced" pattern, meaning that events (here called
+`Action`s) are the single source of truth for the current aggregate state (here
+called a `Snapshot`).
+
+Actions and snapshots are deeply immutable. The `immer` library is used locally
+to generate new snapshots based on "mutations" to an old snapshot (the best
+example usage is in `foldAction()`).
+
+The rendering is done using `renderPage`, a pure function that takes a snapshot
+and produces a DOM tree.
+
+See `foldAction` which is a pure function that folds a single action into a
+snapshot.
+
+See `reduceActions` which is a pure function that takes a list of actions and
+returns the final snapshot it would produce, starting from the empty snapshot.
+
+See `mergeHistories` which collates two separate action histories for the
+purposes of synchronization with the server between multiple potential users and
+devices producing potentially-conflicting history (see `syncWithServer`)
+
+Actions and snapshots are directly serializable using `JSON.stringify` and
+deserializable using `JSON.parse`, meaning that they contain only
+JSON-compatible POD values (for example no `Date`s or class instantiations).
+
+The event-sourced nature of the design is also leveraged in the undo/redo
+feature, since an `undo` action is simply defined as computing a snapshot from
+the whole action history except the action being undone. See `undo()` for more
+detail.
+
+
+## Waterfall Money Model
+
+If you use the app, you'll see that money flows from the top of the list down
+into the next item, etc. I'm calling this the "waterfall money model".
+
+The `project()` encapsulates all the logic for this model. Given a Snapshot at a
+point in time, `project` will compute a new snapshot corresponding to some
+future point, with all the new money each item will have.
+
+
+## Piecewise Linear Money
+
+It was important to me that the app show the "ticking" of money to illustrate
+that the counters are continuous, since this is fundamental to the principle of
+the app (e.g. you shouldn't spend money all at once when you get your salary,
+you should spend it gradually over time).
+
+Rather than refreshing the whole page every time the value changes, I instead
+represent money values using a [piecewise linear
+model](https://en.wikipedia.org/wiki/Piecewise_linear_function).
+
+See the `LinearAmount` type.
+
+When rendering a `LinearAmount` (see `renderLinearAmount`), the resulting DOM
+"component" includes a baked-in timer to update the value when the display needs
+to change. The `LinearAmount` itself doesn't change so often, except at points
+of nonlinearity (see `Snapshot.nextNonlinearity`). It's only at points of
+nonlinearity that the page needs to be re-rendered.
+
+*/
+
 // WORKAROUND for immer.js esm (see https://github.com/immerjs/immer/issues/557)
 (window as any).process = { env: { NODE_ENV: "production" } };
 
@@ -21,14 +89,15 @@ type ItemId = Uuid;
 type UnionOmit<T, K extends string | number | symbol> = T extends unknown ? Omit<T, K> : never;
 
 // The non-event-sourced part of the state
-interface StateSnapshot {
+interface Snapshot {
   id: StateId;
   lists: List[];
   time: ISO8601Timestamp;
   nextNonlinearity: ISO8601Timestamp;
-  // The hash is computed from the history that lead up to the snapshot, not
-  // from the content of the snapshot. It is the hash of the last action folded
-  // into the snapshot (see calculateActionHash)
+  // Note that the hash is computed from the history that lead up to the
+  // snapshot, not from the content of the snapshot. The hash of the snapshot is
+  // equal to the hash of the last action folded into the snapshot (see
+  // `calculateActionHash` and `foldAction`)
   hash: Md5Hash;
 }
 
@@ -36,7 +105,7 @@ type StateHistory = Action[];
 
 // The structure saved to the database or localStorage, combining both the list
 // of actions and the latest snapshot that results from accumulating the actions.
-interface StateBlobStructure extends StateSnapshot {
+interface StateBlobStructure extends Snapshot {
   actions: StateHistory;
 }
 
@@ -55,7 +124,7 @@ interface BudgetAmount {
 }
 
 interface LinearAmount {
-  value: Currency; // The value as measured at `State.time` timestamp
+  value: Currency; // The value as measured at `Snapshot.time` timestamp
   rate: CurrencyPerDay; // Rate of change in dollars per day
 }
 
@@ -118,7 +187,7 @@ type ActionWithoutHash = UnionOmit<Action, 'hash'>;
 // Actions
 
 interface NewState extends ActionBase { type: 'New' }
-interface MigrateState extends ActionBase { type: 'MigrateState', state: StateSnapshot }
+interface MigrateState extends ActionBase { type: 'MigrateState', state: Snapshot }
 
 interface ListNew extends ActionBase { type: 'ListNew', name: string }
 interface ListDelete extends ListActionBase { type: 'ListDelete', listId: ListId }
@@ -157,7 +226,7 @@ class Globals {
     this.snapshot = Object.freeze(latestState);
     this.actions = actions.map(a => Object.freeze(a));
   }
-  snapshot: StateSnapshot;
+  snapshot: Snapshot;
   actions: StateHistory;
 
   userInfo: any;
@@ -293,7 +362,7 @@ function render() {
 
   saveScrollPosition();
   document.body.innerHTML = '';
-  document.body.appendChild(renderPage(g.state));
+  document.body.appendChild(renderPage(g.snapshot));
   restoreScrollPosition();
 }
 
@@ -373,23 +442,35 @@ function undo() {
    *      last action in the undoHistory list.
    *
    *   3. Folding an Undo action (in `foldAction`) just recomputes the new state
-   *      by re-running the reducer over the state using
-   *      `reduceActions`. If this becomes a performance bottleneck in
-   *      future, it's easy to add checkpointing so not the whole history needs
-   *      to be visited.
+   *      by re-running the reducer over the state using `reduceActions`. If
+   *      this becomes a performance bottleneck in future, it's easy to add
+   *      checkpointing so not the whole history needs to be visited.
    *
-   *   4. `reduceActions` runs 2 passes. The first pass computes all the
-   *      actions to skip because they were "undone". The second pass reduces
-   *      over the non-undo actions using `foldAction`.
+   *   4. `reduceActions` runs 2 passes. The first pass computes all the actions
+   *      to skip because they were "undone". The second pass reduces over the
+   *      non-undo actions using `foldAction`.
    *
-   * Note that `foldAction` and `reduceActions` are in some sense
-   * mutually recursive, but `reduceActions` suppresses the effects of
-   * `Undo` actions in `foldAction` by running the initial pass. The naive
-   * implementation may have had exponential asymptotic performance (exponential
-   * to the number of undos in the history) since later undos need to
-   * recalculate the whole history before them, including earlier undos which
-   * calculate the whole history before *them*, etc. The double-pass instead
-   * gets this done in linear time.
+   * Note that `foldAction` and `reduceActions` are in some sense mutually
+   * recursive, but `reduceActions` suppresses the effects of `Undo` actions in
+   * `foldAction` by running the initial pass. The naive implementation may have
+   * had exponential asymptotic performance (exponential to the number of undos
+   * in the history) since later undos need to recalculate the whole history
+   * before them, including earlier undos which calculate the whole history
+   * before *them*, etc. The double-pass instead gets this done in linear time.
+   *
+   * This design is also very robust to conflicting edits. E.g.
+   *
+   *   1. User X adds item A
+   *   2. User Y modifies item A
+   *   3. User X "undoes" action #1, so item A disappears (including user Ys
+   *      edits). User Ys modifications are still present in the history but
+   *      have no effect since the item being affected no longer exists.
+   *   4. User X "redoes" action #1, thereby reintroducing item A, *including
+   *      user Y's edits to item A*.
+   *
+   * Part of the reason that this works is that `foldAction` is designed to
+   * handle apparently-meaningless actions, such as "change the name of item A"
+   * when no "item A" exists.
    */
 
   // Can't undo past the beginning
@@ -416,7 +497,7 @@ function redo() {
   render();
 }
 
-function renderPage(state: StateSnapshot) {
+function renderPage(state: Snapshot): HTMLElement {
   const pageEl = document.createElement('div');
   pageEl.id = 'page';
 
@@ -437,7 +518,7 @@ function renderPage(state: StateSnapshot) {
   return pageEl;
 }
 
-function renderNavigator(state: StateSnapshot) {
+function renderNavigator(state: Snapshot) {
   const navEl = document.createElement('div');
   navEl.classList.add('nav-panel');
 
@@ -522,7 +603,7 @@ function renderNavigator(state: StateSnapshot) {
   return navEl;
 }
 
-function renderTotals(state: StateSnapshot) {
+function renderTotals(state: Snapshot) {
   const totalsSection = document.createElement('div');
   totalsSection.classList.add('totals-section');
 
@@ -630,10 +711,10 @@ function renderList(list: List) {
     const overflowEl = infoEl.appendChild(document.createElement('span'));
     overflowEl.classList.add('list-overflow');
     if (list.kitty.value >= 0) {
-      overflowEl.appendChild(renderAmount(list.kitty));
+      overflowEl.appendChild(renderLinearAmount(list.kitty));
       overflowEl.classList.remove('debt');
     } else {
-      overflowEl.appendChild(renderAmount({
+      overflowEl.appendChild(renderLinearAmount({
         value: -list.kitty.value,
         rate: -list.kitty.rate
       }));
@@ -757,7 +838,7 @@ function renderItem(item: Item) {
   const savedEl = savedSectionEl.appendChild(document.createElement('span'));
   savedEl.classList.add('currency');
   savedEl.classList.add('saved');
-  savedEl.appendChild(renderAmount(item.saved));
+  savedEl.appendChild(renderLinearAmount(item.saved));
 
   // Item Info section
   const infoSectionEl = itemInnerEl.appendChild(document.createElement('div'));
@@ -857,7 +938,7 @@ function renderHistoryItem(item: PurchaseHistoryItem) {
   return historyItemEl;
 }
 
-function renderAmount(amount: LinearAmount) {
+function renderLinearAmount(amount: LinearAmount) {
   if (!amount.rate) {
     const amountSpan = document.createElement('span');
     amountSpan.classList.add('money');
@@ -975,8 +1056,9 @@ function updateState() {
   }
 }
 
-// Projects the waterfall model to the future time `toTime`
-function project(state: StateSnapshot, toTime: Timestamp): StateSnapshot {
+// Projects the waterfall model (money overflowing from one item to the next in
+// a waterfall fashion) to the future time `toTime`
+function project(state: Snapshot, toTime: Timestamp): Snapshot {
   return produce(state, state => {
     state.time ??= serializeDate(toTime);
 
@@ -1971,14 +2053,14 @@ function doAction(newAction: NewAction) {
 }
 
 function calculateActionHash(prevActionHash: Md5Hash, action: ActionWithoutHash): Md5Hash {
-  // The hash is like a git hash, if "actions" are like commits. The hash allows
+  // The hash is like a git hash if "actions" are like commits. The hash allows
   // us to quickly merge two histories or determine if there's a conflict (a
-  // fork in the history). Note that "JSON.stringify" here is technically not
-  // correct since it's not guaranteed to produce a canonical/deterministic
-  // output each time across different environments, but in this case it's safe
-  // for it to produce a different hash for the same history since it will just
-  // fall back to a full history merge (the hash is just used as an
-  // optimization).
+  // fork in the history) -- see `mergeHistories`. Note that "JSON.stringify"
+  // here is technically not correct since it's not guaranteed to produce a
+  // canonical/deterministic output each time across different environments, but
+  // in this case it's safe to produce a different hash for the same history
+  // since it will just fall back to a full history merge (the hash is just used
+  // as an optimization).
   const { hash, ...contentToHash } = action as Action;
   return md5Hash(JSON.stringify([prevActionHash, contentToHash]));
 }
@@ -1987,10 +2069,10 @@ function calculateActionHash(prevActionHash: Md5Hash, action: ActionWithoutHash)
 // `skipEffect` is true, in which case the hash will be updated but no effect on
 // the state lists. Note that the hash for the action must be correct.
 function foldAction(
-  snapshot: StateSnapshot,
+  snapshot: Snapshot,
   action: Action,
   prevActions: Iterable<Action>,
-  skipEffect = false): StateSnapshot
+  skipEffect = false): Snapshot
 {
   return produce(snapshot, snapshot => {
     // At this point, we already expect the hash to match
@@ -2169,7 +2251,7 @@ function foldAction(
 function md5Hash(d: string): Md5Hash {var r = M(V(Y(X(d),8*d.length)));return r.toLowerCase()};function M(d){for(var _,m="0123456789ABCDEF",f="",r=0;r<d.length;r++)_=d.charCodeAt(r),f+=m.charAt(_>>>4&15)+m.charAt(15&_);return f}function X(d){for(var _=Array(d.length>>2),m=0;m<_.length;m++)_[m]=0;for(m=0;m<8*d.length;m+=8)_[m>>5]|=(255&d.charCodeAt(m/8))<<m%32;return _}function V(d){for(var _="",m=0;m<32*d.length;m+=8)_+=String.fromCharCode(d[m>>5]>>>m%32&255);return _}function Y(d,_){d[_>>5]|=128<<_%32,d[14+(_+64>>>9<<4)]=_;for(var m=1732584193,f=-271733879,r=-1732584194,i=271733878,n=0;n<d.length;n+=16){var h=m,t=f,g=r,e=i;f=md5_ii(f=md5_ii(f=md5_ii(f=md5_ii(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_hh(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_gg(f=md5_ff(f=md5_ff(f=md5_ff(f=md5_ff(f,r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+0],7,-680876936),f,r,d[n+1],12,-389564586),m,f,d[n+2],17,606105819),i,m,d[n+3],22,-1044525330),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+4],7,-176418897),f,r,d[n+5],12,1200080426),m,f,d[n+6],17,-1473231341),i,m,d[n+7],22,-45705983),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+8],7,1770035416),f,r,d[n+9],12,-1958414417),m,f,d[n+10],17,-42063),i,m,d[n+11],22,-1990404162),r=md5_ff(r,i=md5_ff(i,m=md5_ff(m,f,r,i,d[n+12],7,1804603682),f,r,d[n+13],12,-40341101),m,f,d[n+14],17,-1502002290),i,m,d[n+15],22,1236535329),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+1],5,-165796510),f,r,d[n+6],9,-1069501632),m,f,d[n+11],14,643717713),i,m,d[n+0],20,-373897302),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+5],5,-701558691),f,r,d[n+10],9,38016083),m,f,d[n+15],14,-660478335),i,m,d[n+4],20,-405537848),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+9],5,568446438),f,r,d[n+14],9,-1019803690),m,f,d[n+3],14,-187363961),i,m,d[n+8],20,1163531501),r=md5_gg(r,i=md5_gg(i,m=md5_gg(m,f,r,i,d[n+13],5,-1444681467),f,r,d[n+2],9,-51403784),m,f,d[n+7],14,1735328473),i,m,d[n+12],20,-1926607734),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+5],4,-378558),f,r,d[n+8],11,-2022574463),m,f,d[n+11],16,1839030562),i,m,d[n+14],23,-35309556),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+1],4,-1530992060),f,r,d[n+4],11,1272893353),m,f,d[n+7],16,-155497632),i,m,d[n+10],23,-1094730640),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+13],4,681279174),f,r,d[n+0],11,-358537222),m,f,d[n+3],16,-722521979),i,m,d[n+6],23,76029189),r=md5_hh(r,i=md5_hh(i,m=md5_hh(m,f,r,i,d[n+9],4,-640364487),f,r,d[n+12],11,-421815835),m,f,d[n+15],16,530742520),i,m,d[n+2],23,-995338651),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+0],6,-198630844),f,r,d[n+7],10,1126891415),m,f,d[n+14],15,-1416354905),i,m,d[n+5],21,-57434055),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+12],6,1700485571),f,r,d[n+3],10,-1894986606),m,f,d[n+10],15,-1051523),i,m,d[n+1],21,-2054922799),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+8],6,1873313359),f,r,d[n+15],10,-30611744),m,f,d[n+6],15,-1560198380),i,m,d[n+13],21,1309151649),r=md5_ii(r,i=md5_ii(i,m=md5_ii(m,f,r,i,d[n+4],6,-145523070),f,r,d[n+11],10,-1120210379),m,f,d[n+2],15,718787259),i,m,d[n+9],21,-343485551),m=safe_add(m,h),f=safe_add(f,t),r=safe_add(r,g),i=safe_add(i,e)}return Array(m,f,r,i)}function md5_cmn(d,_,m,f,r,i){return safe_add(bit_rol(safe_add(safe_add(_,d),safe_add(f,i)),r),m)}function md5_ff(d,_,m,f,r,i,n){return md5_cmn(_&m|~_&f,d,_,r,i,n)}function md5_gg(d,_,m,f,r,i,n){return md5_cmn(_&f|m&~f,d,_,r,i,n)}function md5_hh(d,_,m,f,r,i,n){return md5_cmn(_^m^f,d,_,r,i,n)}function md5_ii(d,_,m,f,r,i,n){return md5_cmn(m^(_|~f),d,_,r,i,n)}function safe_add(d,_){var m=(65535&d)+(65535&_);return(d>>16)+(_>>16)+(m>>16)<<16|65535&m}function bit_rol(d,_){return d<<_|d>>>32-_}
 
 // Build a new State from the given list of actions
-function reduceActions(actions: Action[]): StateSnapshot {
+function reduceActions(actions: Action[]): Snapshot {
   // We run a first look-ahead pass to tally all the undo/redo actions to see
   // which actions should not take be taken into effect.
   const skip = new Set();
@@ -2198,7 +2280,7 @@ function reduceActions(actions: Action[]): StateSnapshot {
   ).snapshot;
 }
 
-function emptyState(): StateSnapshot {
+function emptyState(): Snapshot {
   return {
     // Note: these three fields get their initial value either from a `New`
     // action or a `MigrateState` action, which should be the first actions in
@@ -2324,7 +2406,7 @@ function upgradeStateFormat(state: StateBlobStructure): StateBlobStructure {
   if (!state.actions) {
     const id = state.id;
     const time = state.time;
-    const snapshot: StateSnapshot = {
+    const snapshot: Snapshot = {
       id: state.id,
       hash: state.hash,
       time: state.time,
@@ -2453,7 +2535,7 @@ function parseState(json) {
   return json && upgradeStateFormat(JSON.parse(json));
 }
 
-function sameState(state1: StateSnapshot, state2: StateSnapshot) {
+function sameState(state1: Snapshot, state2: Snapshot) {
   return state1.hash === state2.hash;
 }
 
