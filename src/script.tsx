@@ -260,6 +260,7 @@ const emptyHash = md5Hash('');
 // into the Window. I didn't want to make them lexical bindings because this way
 // it's obvious that it's referencing global state.
 const g = new Globals();
+(window as any).g = g; // For easy debug access
 
 declare const require: any;
 
@@ -1343,7 +1344,7 @@ function addItemClick(event) {
   finishedUserInteraction();
 
   const itemNames = document.getElementsByClassName('item-name');
-  const addedItemName = itemNames[itemNames.length - 1];
+  const addedItemName = itemNames[itemNames.length - 1] as HTMLElement;
   selectAllInContentEditable(addedItemName);
 }
 
@@ -1404,12 +1405,12 @@ function windowBlurEvent() {
   hideMenu();
 }
 
-function makeEditable(el, { read, write, requiresRender = false }) {
+function makeEditable(el: HTMLElement, { read, write, requiresRender = false }) {
   requiresRender ??= true;
   console.assert(read);
   console.assert(write);
 
-  el.setAttribute('contentEditable', true);
+  el.setAttribute('contentEditable', 'true');
   el.addEventListener('focus', focus)
   el.addEventListener('blur', blur)
   el.addEventListener('keypress', keypress)
@@ -1418,12 +1419,13 @@ function makeEditable(el, { read, write, requiresRender = false }) {
   function focus() {
     beginEdit(el);
     el.textContent = read();
-    setTimeout(() => {
-      selectAllInContentEditable(el);
-    }, 1)
+    selectAllInContentEditable(el);
   }
 
   function blur() {
+    // Remove selection, if the text was selected
+    window.getSelection().removeAllRanges();
+
     if (el.textContent !== read()) {
       updateState();
       write(el.textContent);
@@ -2012,9 +2014,18 @@ function restoreScrollPosition() {
   list.scrollTop = g.listScrollPosition;
 }
 
-function selectAllInContentEditable(el) {
+function selectAllInContentEditable(el: HTMLElement) {
   el.focus();
-  // document.execCommand('selectAll', false, null);
+  //document.execCommand('selectAll', false, null);
+
+  // https://stackoverflow.com/a/3806004
+  setTimeout(() => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }, 1);
 }
 
 // https://stackoverflow.com/a/2117523
@@ -2086,10 +2097,7 @@ function foldAction(
     }
 
     const time = deserializeDate(action.time);
-    snapshot = {
-      ...snapshot,
-      ...project(snapshot, time)
-    };
+    project(snapshot, time);
 
     const findList = id => snapshot.lists.find(l => l.id === id);
     const findItem = id => {
@@ -2241,9 +2249,7 @@ function foldAction(
 
     // Run another projection just to update any side effects of the action. For
     // example, redistributing newly-available cash
-    snapshot = project(snapshot, time);
-
-    return snapshot;
+    project(snapshot, time);
   })
 }
 
