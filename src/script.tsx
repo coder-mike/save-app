@@ -40,9 +40,9 @@ detail.
 If you use the app, you'll see that money flows from the top of the list down
 into the next item, etc. I'm calling this the "waterfall money model".
 
-The `project()` encapsulates all the logic for this model. Given a Snapshot at a
-point in time, `project` will compute a new snapshot corresponding to some
-future point, with all the new money each item will have.
+The `projection()` encapsulates all the logic for this model. Given a Snapshot
+at a point in time, `projection` will compute a new snapshot corresponding to
+some future point, with all the new money each item will have.
 
 
 ## Piecewise Linear Money
@@ -326,12 +326,20 @@ g.loadState = async (renderOnChange) => {
   }
 }
 
-window.addEventListener('load', async() => {
+window.addEventListener('load', onLoad);
+
+window.addEventListener('focus', () => synchronize());
+
+document.addEventListener('keydown', documentKeyDown);
+document.addEventListener('mousedown', documentMouseDown);
+window.addEventListener('blur', windowBlurEvent);
+
+async function onLoad() {
   g.syncStatus = 'sync-pending';
   g.undoHistory = []; // List of action IDs available to undo
   g.undoIndex = 0; // Points after the last entry in undoHistory
   g.debugMode = false;
-  if (g.debugMode) g.state.time = serializeDate(Date.now());
+  if (g.debugMode) g.snapshot.time = serializeDate(Date.now());
 
   await g.loadState(false);
 
@@ -346,20 +354,14 @@ window.addEventListener('load', async() => {
   render();
 
   // occasionallyRebuild();
-});
-
-window.addEventListener('focus', () => synchronize());
-
-document.addEventListener('keydown', documentKeyDown);
-document.addEventListener('mousedown', documentMouseDown);
-window.addEventListener('blur', windowBlurEvent);
+}
 
 function render() {
   console.log('Rendering');
 
   g.currentListIndex ??= 0;
   g.currentListIndex = Math.max(g.currentListIndex, 0);
-  g.currentListIndex = Math.min(g.currentListIndex, g.state.lists.length - 1);
+  g.currentListIndex = Math.min(g.currentListIndex, g.snapshot.lists.length - 1);
 
   saveScrollPosition();
   document.body.innerHTML = '';
@@ -682,8 +684,9 @@ function renderList(list: List) {
   heading.id = 'list-heading';
   heading.classList.add('list-heading')
   makeEditable(heading, {
-    read: () => list.name,
-    write: value => addUserAction({ type: 'ListSetName', listId: list.id, newName: value })
+    read: () => getList(list.id).name,
+    write: value => addUserAction({ type: 'ListSetName', listId: list.id, newName: value }),
+    requiresRender: false
   });
 
   // Header info section
@@ -698,7 +701,7 @@ function renderList(list: List) {
   const allocatedAmountEl = allocatedEl.appendChild(document.createElement('div'));
   allocatedAmountEl.classList.add('allocated-amount');
   makeEditable(allocatedAmountEl, {
-    read: () => formatCurrency(list.budget.dollars),
+    read: () => formatCurrency(getList(list.id).budget.dollars),
     write: v => addUserAction({ type: 'ListSetBudget', listId: list.id, budget: { dollars: parseNonNegativeCurrency(v), unit: '/month' } })
   });
 
@@ -746,6 +749,21 @@ function renderList(list: List) {
   addItemEl.appendChild(createPlusSvg());
 
   return listEl;
+}
+
+function getList(id: ListId) {
+  return g.snapshot.lists.find(l => l.id === id) ?? unexpected();
+}
+
+function getItem(id: ItemId) {
+  for (const list of g.snapshot.lists)
+    for (const item of list.items)
+      if (item.id === id) return item;
+  return unexpected();
+}
+
+function unexpected(): never {
+  throw new Error('Unexpected');
 }
 
 function renderMobileTopMenuBar() {
@@ -821,7 +839,7 @@ function renderItem(item: Item) {
   const nameEl = nameSectionEl.appendChild(document.createElement('div'));
   nameEl.classList.add('item-name');
   makeEditable(nameEl, {
-    read: () => item.name,
+    read: () => getItem(item.id).name,
     write: name => addUserAction({ type: 'ItemSetName', itemId: item.id, name }),
     requiresRender: false,
   });
@@ -848,7 +866,7 @@ function renderItem(item: Item) {
   // Item Price
   const priceEl = infoSectionEl.appendChild(document.createElement('span'));
   makeEditable(priceEl, {
-    read: () => formatCurrency(item.price),
+    read: () => formatCurrency(getItem(item.id).price),
     write: v => addUserAction({
       type: 'ItemSetPrice',
       itemId: item.id,
@@ -1024,16 +1042,13 @@ function updateState() {
   const toTime = Date.now();
 
   // Need at least one list to render
-  if (g.state.lists.length < 1) {
+  if (g.snapshot.lists.length < 1) {
     doAction({ type: 'ListNew', name: 'Wish list' });
   }
 
-  g.state = {
-    ...g.state,
-    ...project(g.state, toTime)
-  };
+  g.snapshot = projection(g.snapshot, toTime);
 
-  g.nextNonlinearity = deserializeDate(g.state.nextNonlinearity);
+  g.nextNonlinearity = deserializeDate(g.snapshot.nextNonlinearity);
   g.lastCommitTime = toTime;
 
   if (g.nextNonlinearity) {
@@ -1059,100 +1074,102 @@ function updateState() {
 
 // Projects the waterfall model (money overflowing from one item to the next in
 // a waterfall fashion) to the future time `toTime`
-function project(state: Snapshot, toTime: Timestamp): Snapshot {
-  return produce(state, state => {
-    state.time ??= serializeDate(toTime);
+function projection(state: Snapshot, toTime: Timestamp): Snapshot {
+  return produce(state, state => mutatingProjection(state, toTime));
+}
 
-    const lastCommitTime = deserializeDate(state.time);
-    let timeOfNextNonlinearity = null;
+// Same as `projection` but does in-place mutations
+function mutatingProjection(state: Snapshot, toTime: Timestamp) {
+  state.time ??= serializeDate(toTime);
 
-    for (const list of state.lists) {
-      list.name ??= 'Wish list';
-      list.budget ??= { dollars: 0, unit: '/month' };
-      list.kitty ??= { value: 0, rate: 0 };
-      list.items ??= [];
-      list.purchaseHistory ??= [];
-      console.assert(!!list.id);
+  const lastCommitTime = deserializeDate(state.time);
+  let timeOfNextNonlinearity = null;
 
-      const allocatedRate = getAllocatedRate(list.budget);
+  for (const list of state.lists) {
+    list.name ??= 'Wish list';
+    list.budget ??= { dollars: 0, unit: '/month' };
+    list.kitty ??= { value: 0, rate: 0 };
+    list.items ??= [];
+    list.purchaseHistory ??= [];
+    console.assert(!!list.id);
 
-      // We essentially iterate the time cursor forwards from the last commit time to the newTime
-      let timeCursor = lastCommitTime;
+    const allocatedRate = getAllocatedRate(list.budget);
 
-      // The amount of money we have left over at `timeCursor`
-      let remainingMoneyToAllocate = list.kitty.value + rateInDollarsPerMs(allocatedRate) * (toTime - lastCommitTime);
+    // We essentially iterate the time cursor forwards from the last commit time to the newTime
+    let timeCursor = lastCommitTime;
 
-      // Rate of change of remainingMoneyToAllocate at `timeCursor`, which
-      // eventually gets attributed to the kitty bucket
-      let overflowRate = allocatedRate;
+    // The amount of money we have left over at `timeCursor`
+    let remainingMoneyToAllocate = list.kitty.value + rateInDollarsPerMs(allocatedRate) * (toTime - lastCommitTime);
 
-      // Are we in debt?
-      let debt = 0;
-      let debtRate = 0;
-      if (remainingMoneyToAllocate < 0) {
-        // The money isn't available to allocate to further items, so we move it
-        // to the "debt" variable, which we'll put back in the kitty later
-        debt = -remainingMoneyToAllocate;
-        debtRate = -overflowRate;
+    // Rate of change of remainingMoneyToAllocate at `timeCursor`, which
+    // eventually gets attributed to the kitty bucket
+    let overflowRate = allocatedRate;
+
+    // Are we in debt?
+    let debt = 0;
+    let debtRate = 0;
+    if (remainingMoneyToAllocate < 0) {
+      // The money isn't available to allocate to further items, so we move it
+      // to the "debt" variable, which we'll put back in the kitty later
+      debt = -remainingMoneyToAllocate;
+      debtRate = -overflowRate;
+      remainingMoneyToAllocate = 0;
+      overflowRate = 0;
+
+      // How long it will take ot pay off the debt
+      timeCursor += allocatedRate ? debt / rateInDollarsPerMs(allocatedRate) : Infinity;
+
+      // The next non-linearity corresponds to when the debt is paid
+      if (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity)
+        timeOfNextNonlinearity = timeCursor;
+    }
+
+    // A cascading waterfall where we allocate the new money down the list
+    for (const item of list.items) {
+      item.name ??= 'Item';
+      item.price ??= 0;
+      item.saved ??= { value: 0, rate: 0 };
+      console.assert(!!item.id);
+
+      // Remaining item cost at the time of last commit
+      const remainingCost = item.price - item.saved.value;
+
+      // Project when we will have saved enough for this item
+      timeCursor += allocatedRate ? remainingCost / rateInDollarsPerMs(allocatedRate) : Infinity;
+
+      // Do we have enough money yet to cover it now?
+      if (remainingMoneyToAllocate >= remainingCost) {
+        remainingMoneyToAllocate -= remainingCost; // For the rare case of a price reduction, we can add back the money
+        item.saved.value = item.price;
+        item.saved.rate = 0;
+        item.expectedDate = null;
+      } else {
+        // Else we don't have enough money yet, so all the remaining money goes
+        // to the item. A special case is that we have no remaining money.
+        item.saved.value += remainingMoneyToAllocate;
+        item.saved.rate = overflowRate;
         remainingMoneyToAllocate = 0;
         overflowRate = 0;
 
-        // How long it will take ot pay off the debt
-        timeCursor += allocatedRate ? debt / rateInDollarsPerMs(allocatedRate) : Infinity;
-
-        // The next non-linearity corresponds to when the debt is paid
+        // The time cursor is the projected date when the remaining cost of the
+        // item will be paid off. The next nonlinearity is the earliest future
+        // time at which an item will be paid off.
         if (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity)
           timeOfNextNonlinearity = timeCursor;
+
+        item.expectedDate = serializeDate(timeCursor);
       }
-
-      // A cascading waterfall where we allocate the new money down the list
-      for (const item of list.items) {
-        item.name ??= 'Item';
-        item.price ??= 0;
-        item.saved ??= { value: 0, rate: 0 };
-        console.assert(!!item.id);
-
-        // Remaining item cost at the time of last commit
-        const remainingCost = item.price - item.saved.value;
-
-        // Project when we will have saved enough for this item
-        timeCursor += allocatedRate ? remainingCost / rateInDollarsPerMs(allocatedRate) : Infinity;
-
-        // Do we have enough money yet to cover it now?
-        if (remainingMoneyToAllocate >= remainingCost) {
-          remainingMoneyToAllocate -= remainingCost; // For the rare case of a price reduction, we can add back the money
-          item.saved.value = item.price;
-          item.saved.rate = 0;
-          item.expectedDate = null;
-        } else {
-          // Else we don't have enough money yet, so all the remaining money goes
-          // to the item. A special case is that we have no remaining money.
-          item.saved.value += remainingMoneyToAllocate;
-          item.saved.rate = overflowRate;
-          remainingMoneyToAllocate = 0;
-          overflowRate = 0;
-
-          // The time cursor is the projected date when the remaining cost of the
-          // item will be paid off. The next nonlinearity is the earliest future
-          // time at which an item will be paid off.
-          if (!timeOfNextNonlinearity || timeCursor < timeOfNextNonlinearity)
-            timeOfNextNonlinearity = timeCursor;
-
-          item.expectedDate = serializeDate(timeCursor);
-        }
-      }
-
-      // If there's still money left over, it goes into the kitty
-      list.kitty.value = remainingMoneyToAllocate - debt;
-      list.kitty.rate = overflowRate - debtRate;
     }
 
-    state.time = serializeDate(toTime);
-    state.nextNonlinearity = timeOfNextNonlinearity
-      ? serializeDate(timeOfNextNonlinearity)
-      : null;
-  })
+    // If there's still money left over, it goes into the kitty
+    list.kitty.value = remainingMoneyToAllocate - debt;
+    list.kitty.rate = overflowRate - debtRate;
+  }
 
+  state.time = serializeDate(toTime);
+  state.nextNonlinearity = timeOfNextNonlinearity
+    ? serializeDate(timeOfNextNonlinearity)
+    : null;
 }
 
 function getAllocatedRate(budget: BudgetAmount) {
@@ -1405,7 +1422,7 @@ function windowBlurEvent() {
   hideMenu();
 }
 
-function makeEditable(el: HTMLElement, { read, write, requiresRender = false }) {
+function makeEditable(el: HTMLElement, { read, write, requiresRender = true }) {
   requiresRender ??= true;
   console.assert(read);
   console.assert(write);
@@ -1429,6 +1446,7 @@ function makeEditable(el: HTMLElement, { read, write, requiresRender = false }) 
     if (el.textContent !== read()) {
       updateState();
       write(el.textContent);
+      el.textContent = read();
       endEdit(true, requiresRender);
     } else {
       endEdit(false);
@@ -1450,7 +1468,7 @@ function makeEditable(el: HTMLElement, { read, write, requiresRender = false }) 
 function navListItemClick(event) {
   const list = (domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest(".nav-item"))) as List;
 
-  const index = g.state.lists.indexOf(list);
+  const index = g.snapshot.lists.indexOf(list);
   g.currentListIndex = index;
 
   render();
@@ -1486,12 +1504,12 @@ function endEdit(changed = true, requiresRender = true) {
 function newListClick() {
   let name = 'Wish list';
   let counter = 1;
-  while (g.state.lists.some(l => l.name === name))
+  while (g.snapshot.lists.some(l => l.name === name))
     name = `Wish list ${++counter}`;
 
   addUserAction({ type: 'ListNew', name });
 
-  g.currentListIndex = g.state.lists.length - 1;
+  g.currentListIndex = g.snapshot.lists.length - 1;
 
   finishedUserInteraction();
 
@@ -2018,14 +2036,17 @@ function selectAllInContentEditable(el: HTMLElement) {
   el.focus();
   //document.execCommand('selectAll', false, null);
 
-  // https://stackoverflow.com/a/3806004
-  setTimeout(() => {
+  setTimeout(selectRange, 1);
+  selectRange();
+
+  function selectRange(){
+    // https://stackoverflow.com/a/3806004
     const range = document.createRange();
     range.selectNodeContents(el);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
-  }, 1);
+  }
 }
 
 // https://stackoverflow.com/a/2117523
@@ -2097,7 +2118,7 @@ function foldAction(
     }
 
     const time = deserializeDate(action.time);
-    project(snapshot, time);
+    mutatingProjection(snapshot, time);
 
     const findList = id => snapshot.lists.find(l => l.id === id);
     const findItem = id => {
@@ -2249,7 +2270,7 @@ function foldAction(
 
     // Run another projection just to update any side effects of the action. For
     // example, redistributing newly-available cash
-    project(snapshot, time);
+    mutatingProjection(snapshot, time);
   })
 }
 
@@ -2331,10 +2352,10 @@ function occasionallyRebuild() {
     // contains all the necessary information to rebuild the latest state of all
     // the lists. I want this here because it'll cause bugs to surface earlier
     // rather than later if there's a problem building state from the actions.
-    if (!g.dialogBackgroundEl && !g.isEditing && g.state.actions) {
+    if (!g.dialogBackgroundEl && !g.isEditing && g.actions) {
       console.log('Rebuilding the list state from the actions')
       g.snapshot = reduceActions(g.actions);
-      g.lastCommitTime = deserializeDate(g.state.time);
+      g.lastCommitTime = deserializeDate(g.snapshot.time);
 
       render();
     }
@@ -2591,4 +2612,11 @@ function renderSquirrelGraphic() {
   path.setAttribute('d', 'm 57.743013,29.127309 c -12.93795,0.179207 -22.347307,11.920556 -21.895807,24.86346 0.453995,13.014395 12.723204,19.422555 11.922584,33.151853 -0.252254,4.325777 -2.256285,9.132424 -8.96533,14.164208 17.743524,-2.957243 17.743524,-20.700777 17.743524,-35.487045 0,-18.265493 16.265304,-18.27202 22.707897,-8.660942 C 82.21312,36.458046 68.526468,28.977945 57.743013,29.127309 Z M 15.583664,51.653267 c -0.04923,-0.0018 -0.09976,0.0016 -0.151328,0.0098 -1.436303,0.228226 -1.15389,2.04243 -1.331342,4.755288 a 9.8298778,9.8298778 0 0 0 -2.870038,-0.428571 9.8298778,9.8298778 0 0 0 -9.829403,9.829983 9.8298778,9.8298778 0 0 0 9.829403,9.82998 9.8298778,9.8298778 0 0 0 9.829981,-9.82998 9.8298778,9.8298778 0 0 0 -2.327682,-6.351744 c -1.192858,-3.122049 -1.645077,-7.758565 -3.149591,-7.81477 z M 9.2169048,62.582976 a 1.9162314,1.9162314 0 0 1 1.9164392,1.916439 1.9162314,1.9162314 0 0 1 -1.9164392,1.916439 1.9162314,1.9162314 0 0 1 -1.9164393,-1.916439 1.9162314,1.9162314 0 0 1 1.9164393,-1.916439 z m 21.3494092,6.616278 a 16.264895,16.264895 0 0 0 -16.264896,16.264897 16.264895,16.264895 0 0 0 9.497867,14.789739 1.4114845,1.4114845 0 0 0 -0.01155,0.18136 1.4114845,1.4114845 0 0 0 1.41105,1.41162 1.4114845,1.4114845 0 0 0 1.196185,-0.66191 16.264895,16.264895 0 0 0 4.171345,0.54409 A 16.264895,16.264895 0 0 0 46.831211,85.464151 16.264895,16.264895 0 0 0 30.566314,69.199254 Z M 5.3164492,76.690579 A 3.9153737,3.9153737 0 0 0 1.401553,80.606053 3.9153737,3.9153737 0 0 0 5.3164492,84.521526 3.9153737,3.9153737 0 0 0 9.231922,80.606053 3.9153737,3.9153737 0 0 0 5.3164492,76.690579 Z')
 
   return svg;
+}
+
+(window as any)._debugWipeState = function () {
+  localStorage.removeItem('user-info');
+  localStorage.removeItem('squirrel-away-state');
+  localStorage.removeItem('squirrel-away-online-state');
+  onLoad();
 }
