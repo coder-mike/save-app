@@ -13,5 +13,32 @@ A simple app to help to limit spending. You create a list of things you want, an
   - `npm run web-server` and open `localhost:8080` in a browser (uses web localStorage for storage)
   - OR host the `./public` files on a PHP server with `config.php` configured with the chosen database connection
 
+## Deploy
 
+`npm run deploy uat` or `npm run deploy prod`
+
+Requires `deploy-config.json` to exist and have the parameters needed, e.g.:
+
+```json
+{
+  "uat": {
+    "ftpPath": "squirrelaway.app/public_html/uat",
+    "ftpOptions": {
+      "host": "squirrelaway.app",
+      "port": 21,
+      "user": "deploy@squirrelaway.app",
+      "pass": "***"
+    }
+  },
+  "prod": {
+    "ftpPath": "squirrelaway.app/public_html",
+    "ftpOptions": {
+      "host": "squirrelaway.app",
+      "port": 21,
+      "user": "deploy@squirrelaway.app",
+      "pass": "***"
+    }
+  }
+}
+```
 
