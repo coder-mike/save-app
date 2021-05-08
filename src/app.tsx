@@ -73,6 +73,7 @@ import produce from 'immer'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom';
 import 'react-dom'
+import { Page } from './render';
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
@@ -92,7 +93,7 @@ type ItemId = Uuid;
 type UnionOmit<T, K extends string | number | symbol> = T extends unknown ? Omit<T, K> : never;
 
 // The non-event-sourced part of the state
-interface Snapshot {
+export interface Snapshot {
   id: StateId;
   lists: List[];
   time: ISO8601Timestamp;
@@ -372,10 +373,8 @@ function render() {
   g.currentListIndex = Math.max(g.currentListIndex, 0);
   g.currentListIndex = Math.min(g.currentListIndex, g.snapshot.lists.length - 1);
 
-  saveScrollPosition();
-  document.body.innerHTML = '';
-  document.body.appendChild(renderPage(g.snapshot));
-  //ReactDOM.render(<h1>Hello</h1>, document.body);
+  saveScrollPosition(); // TODO: This won't be needed once we move to react
+  ReactDOM.render(<Page value={g.snapshot}/>, document.getElementById('page'));
   restoreScrollPosition();
 }
 
@@ -510,7 +509,7 @@ function redo() {
   render();
 }
 
-function renderPage(state: Snapshot): HTMLElement {
+export function renderPage(state: Snapshot): HTMLElement {
   const pageEl = document.createElement('div');
   pageEl.id = 'page';
 
