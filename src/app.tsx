@@ -74,142 +74,9 @@ import * as React from 'react'
 import * as ReactDOM from 'react-dom';
 import 'react-dom'
 import { Page } from './render';
+import { Action, ActionWithoutHash, BudgetAmount, Currency, Item, ItemId, LinearAmount, List, ListId, Md5Hash, NewAction, PurchaseHistoryItem, Snapshot, StateBlobStructure, StateHistory, Timestamp, Uuid } from './data-model';
 
 const svgNS = 'http://www.w3.org/2000/svg';
-
-type Timestamp = number;
-type ISO8601Timestamp = string;
-type Md5Hash = string;
-type Currency = number;
-type CurrencyPerDay = number;
-
-type Uuid = string;
-type ActionId = Uuid;
-type StateId = Uuid;
-type ListId = Uuid;
-type ItemId = Uuid;
-
-// https://github.com/microsoft/TypeScript/issues/39556#issuecomment-656925230
-type UnionOmit<T, K extends string | number | symbol> = T extends unknown ? Omit<T, K> : never;
-
-// The non-event-sourced part of the state
-export interface Snapshot {
-  id: StateId;
-  lists: List[];
-  time: ISO8601Timestamp;
-  nextNonlinearity: ISO8601Timestamp;
-  // Note that the hash is computed from the history that lead up to the
-  // snapshot, not from the content of the snapshot. The hash of the snapshot is
-  // equal to the hash of the last action folded into the snapshot (see
-  // `calculateActionHash` and `foldAction`)
-  hash: Md5Hash;
-}
-
-type StateHistory = Action[];
-
-// The structure saved to the database or localStorage, combining both the list
-// of actions and the latest snapshot that results from accumulating the actions.
-interface StateBlobStructure extends Snapshot {
-  actions: StateHistory;
-}
-
-interface List {
-  id: ListId;
-  name: string;
-  items: Item[];
-  budget: BudgetAmount;
-  kitty: LinearAmount;
-  purchaseHistory: PurchaseHistoryItem[];
-}
-
-interface BudgetAmount {
-  dollars: Currency;
-  unit: '/month';
-}
-
-interface LinearAmount {
-  value: Currency; // The value as measured at `Snapshot.time` timestamp
-  rate: CurrencyPerDay; // Rate of change in dollars per day
-}
-
-interface Item {
-  id: ItemId;
-  name?: string;
-  price: Currency;
-  saved: LinearAmount;
-  note?: string;
-  expectedDate?: ISO8601Timestamp | 'never';
-}
-
-interface PurchaseHistoryItem {
-  id: ItemId;
-  name?: string;
-  priceEstimate: Currency;
-  price: Currency;
-  purchaseDate: ISO8601Timestamp;
-}
-
-interface ActionBase {
-  id: ActionId;
-  time: ISO8601Timestamp;
-  hash: Md5Hash;
-}
-
-interface ListActionBase extends ActionBase {
-  listId: ListId;
-}
-
-interface ItemActionBase extends ActionBase {
-  itemId: ItemId;
-}
-
-type Action =
-  | NewState
-  | MigrateState
-  | ListNew
-  | ListDelete
-  | ListSetName
-  | ListSetBudget
-  | ListInjectMoney
-  | ItemNew
-  | ItemMove
-  | ItemDelete
-  | ItemSetName
-  | ItemSetPrice
-  | ItemSetNote
-  | ItemPurchase
-  | ItemRedistributeMoney
-  | UndoAction
-  | RedoAction
-
-// A new action is an action that hasn't yet been added to the action history.
-// This is for convenience, since we can have a common place where the id, time,
-// and hash are computed
-type NewAction = UnionOmit<Action, 'id' | 'time' | 'hash'>;
-type ActionWithoutHash = UnionOmit<Action, 'hash'>;
-
-// Actions
-
-interface NewState extends ActionBase { type: 'New' }
-interface MigrateState extends ActionBase { type: 'MigrateState', state: Snapshot }
-
-interface ListNew extends ActionBase { type: 'ListNew', name: string }
-interface ListDelete extends ListActionBase { type: 'ListDelete', listId: ListId }
-interface ListSetName extends ListActionBase { type: 'ListSetName', newName: string }
-interface ListSetBudget extends ListActionBase { type: 'ListSetBudget', budget: BudgetAmount }
-interface ListInjectMoney extends ListActionBase { type: 'ListInjectMoney', amount: number }
-
-interface ItemNew extends ListActionBase { type: 'ItemNew' }
-interface ItemMove extends ItemActionBase { type: 'ItemMove', targetListId: ListId, targetIndex: number }
-interface ItemDelete extends ItemActionBase { type: 'ItemDelete' }
-interface ItemSetName extends ItemActionBase { type: 'ItemSetName', name: string }
-interface ItemSetPrice extends ItemActionBase { type: 'ItemSetPrice', price: Currency }
-interface ItemSetNote extends ItemActionBase { type: 'ItemSetNote', note: string }
-interface ItemPurchase extends ItemActionBase { type: 'ItemPurchase', actualPrice: Currency }
-interface ItemRedistributeMoney extends ItemActionBase { type: 'ItemRedistributeMoney' }
-
-interface UndoAction extends ActionBase { type: 'Undo', actionIdToUndo: ActionId }
-interface RedoAction extends ActionBase { type: 'Redo', actionIdToRedo: ActionId }
 
 class Globals {
   mode: 'electron-local' | 'web-local' | 'online';
@@ -359,12 +226,6 @@ async function onLoad() {
 
   // occasionallyRebuild();
 }
-
-// class Welcome extends React.Component<{name: string}> {
-//   render() {
-//     return <h1>Hello, {this.props.name}</h1>;
-//   }
-// }
 
 function render() {
   console.log('Rendering');

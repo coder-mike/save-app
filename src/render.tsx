@@ -1,10 +1,14 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import 'react-dom';
-import { renderPage, Snapshot } from './app';
+import { renderPage } from './app';
 
 // The "old" render pattern was a function that took in the state and returned
-// the actual DOM elements. The new pattern is a react component class.
+// the actual DOM elements. The new pattern is a react component class. Example:
+//
+// ```
+// export const Page = oldRenderPatternToReact(renderPage, ref => <div ref={ref}/>);
+// ```
 function oldRenderPatternToReact<T>(
   oldStyle: (v: T) => HTMLElement,
   container: any,
@@ -38,4 +42,4 @@ function oldRenderPatternToReact<T>(
   }
 }
 
-export const Page = oldRenderPatternToReact(renderPage, ref => <div ref={ref as any}/>);
+export const Page = oldRenderPatternToReact(renderPage, ref => <div ref={ref}/>);
