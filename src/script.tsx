@@ -69,7 +69,10 @@ nonlinearity that the page needs to be re-rendered.
 // WORKAROUND for immer.js esm (see https://github.com/immerjs/immer/issues/557)
 (window as any).process = { env: { NODE_ENV: "production" } };
 
-import produce from "immer"
+import produce from 'immer'
+import * as React from 'react'
+import * as ReactDOM from 'react-dom';
+import 'react-dom'
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
@@ -356,6 +359,12 @@ async function onLoad() {
   // occasionallyRebuild();
 }
 
+// class Welcome extends React.Component<{name: string}> {
+//   render() {
+//     return <h1>Hello, {this.props.name}</h1>;
+//   }
+// }
+
 function render() {
   console.log('Rendering');
 
@@ -366,6 +375,7 @@ function render() {
   saveScrollPosition();
   document.body.innerHTML = '';
   document.body.appendChild(renderPage(g.snapshot));
+  //ReactDOM.render(<h1>Hello</h1>, document.body);
   restoreScrollPosition();
 }
 
