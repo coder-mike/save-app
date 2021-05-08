@@ -235,7 +235,7 @@ function render() {
   g.currentListIndex = Math.min(g.currentListIndex, g.snapshot.lists.length - 1);
 
   saveScrollPosition(); // TODO: This won't be needed once we move to react
-  ReactDOM.render(<Page value={g.snapshot}/>, document.getElementById('page'));
+  ReactDOM.render(React.createElement(Page, { value: g.snapshot }), document.getElementById('page'));
   restoreScrollPosition();
 }
 

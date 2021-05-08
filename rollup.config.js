@@ -5,7 +5,7 @@ import commonjs from '@rollup/plugin-commonjs';
 import { terser } from 'rollup-plugin-terser';
 
 export default {
-  input: 'src/app.tsx',
+  input: 'src/app.ts',
   output: {
     file: 'public/script.js',
     format: 'iife',
@@ -23,7 +23,7 @@ export default {
       'process.env.NODE_ENV': '"development"',
     }),
     commonjs({
-      extensions: [ '.js', '.tsx' ],
+      extensions: [ '.js', '.ts', '.tsx' ],
     }),
     typescript(),
   ]
