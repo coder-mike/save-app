@@ -4,8 +4,8 @@
   "description": "",
   "main": "main.js",
   "scripts": {
-    "build": "rollup --config rollup.config.js src/script.tsx",
-    "build:watch": "rollup --config rollup.config.js src/script.tsx --watch",
+    "build": "rollup --config rollup.config.js src/app.tsx",
+    "build:watch": "rollup --config rollup.config.js src/app.tsx --watch",
     "test": "echo \"Error: no test specified\" && exit 1",
     "web-local": "http-server ./public",
     "deploy": "node deploy.js"
