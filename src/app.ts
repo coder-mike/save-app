@@ -74,12 +74,12 @@ import * as React from 'react'
 import * as ReactDOM from 'react-dom';
 import 'react-dom'
 import { Page } from './render';
-import { Action, ActionWithoutHash, BudgetAmount, Currency, Item, ItemId, LinearAmount, List, ListId, Md5Hash, NewAction, PurchaseHistoryItem, Snapshot, StateBlobStructure, StateHistory, Timestamp, Uuid } from './data-model';
+import { Action, ActionWithoutHash, AppMode, BudgetAmount, Currency, Item, ItemId, LinearAmount, List, ListId, Md5Hash, NewAction, PurchaseHistoryItem, Snapshot, StateBlobStructure, StateHistory, SyncStatus, Timestamp, Uuid } from './data-model';
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
 class Globals {
-  mode: 'electron-local' | 'web-local' | 'online';
+  mode: AppMode;
 
   // The "state", as it used to be called, is now split into the history and
   // snapshot parts. The snapshot is immutable, but the history list is mutable
@@ -108,7 +108,7 @@ class Globals {
   nextNonlinearity: Timestamp;
   lastCommitTime: Timestamp;
   currentListIndex: number;
-  syncStatus: 'sync-pending' | 'sync-failure' | 'sync-success';
+  syncStatus: SyncStatus;
   nextNonLinearityTimer: any;
   dialogBackgroundEl: HTMLElement;
   draggingItem: any;
@@ -235,7 +235,7 @@ function render() {
   g.currentListIndex = Math.min(g.currentListIndex, g.snapshot.lists.length - 1);
 
   saveScrollPosition(); // TODO: This won't be needed once we move to react
-  ReactDOM.render(React.createElement(Page, { value: g.snapshot }), document.getElementById('page'));
+  ReactDOM.render(React.createElement(Page, g), document.getElementById('page'));
   restoreScrollPosition();
 }
 
@@ -370,28 +370,7 @@ function redo() {
   render();
 }
 
-export function renderPage(state: Snapshot): HTMLElement {
-  const pageEl = document.createElement('div');
-  pageEl.id = 'page';
-
-  if (g.debugMode)
-    pageEl.classList.add('debug-mode');
-
-  pageEl.classList.add(g.mode);
-  pageEl.classList.add(g.syncStatus);
-
-  pageEl.appendChild(renderNavigator(state));
-  pageEl.appendChild(renderList(state.lists[g.currentListIndex]));
-
-  // The gray overlay that goes underneath the mobile nav menu
-  const mobileNavBackground = pageEl.appendChild(document.createElement('div'));
-  mobileNavBackground.id = 'mobile-nav-background';
-  mobileNavBackground.addEventListener('click', hideMobileNav);
-
-  return pageEl;
-}
-
-function renderNavigator(state: Snapshot) {
+export function renderNavigator(state: Snapshot) {
   const navEl = document.createElement('div');
   navEl.classList.add('nav-panel');
 
@@ -526,7 +505,7 @@ function renderCurrency(amount: Currency, decimals = 2) {
   return el;
 }
 
-function renderList(list: List) {
+export function renderList(list: List) {
   const listEl = document.createElement('div');
   listEl.id = 'current-list';
   domDataAttachments.set(listEl, list);
@@ -2434,10 +2413,6 @@ function parseState(json) {
 
 function sameState(state1: Snapshot, state2: Snapshot) {
   return state1.hash === state2.hash;
-}
-
-function hideMobileNav() {
-  document.getElementById('page').classList.remove('mobile-nav-showing');
 }
 
 function createMobileNavMenuButtonSvg() {

@@ -132,3 +132,6 @@ export interface ItemRedistributeMoney extends ItemActionBase { type: 'ItemRedis
 
 export interface UndoAction extends ActionBase { type: 'Undo', actionIdToUndo: ActionId }
 export interface RedoAction extends ActionBase { type: 'Redo', actionIdToRedo: ActionId }
+
+export type SyncStatus = 'sync-pending' | 'sync-failure' | 'sync-success';
+export type AppMode = 'electron-local' | 'web-local' | 'online';
