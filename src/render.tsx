@@ -1,8 +1,9 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import 'react-dom';
-import { renderList, renderNavigator, renderPage } from './app';
-import { AppMode, Snapshot, SyncStatus } from './data-model';
+import { createReadyIndicatorSvg, hideMobileNav, navListItemClick, renderCurrency, renderList, renderNavigator, signInClick, signOutClick, signUpClick } from './app';
+import { AppMode, Currency, List, Snapshot, SyncStatus, UserInfo } from './data-model';
+import { getAllocatedRate } from './utils';
 
 // The "old" render pattern was a function that took in the state and returned
 // the actual DOM elements. The new pattern is a react component class. Example:
@@ -11,7 +12,7 @@ import { AppMode, Snapshot, SyncStatus } from './data-model';
 // export const Page = oldRenderPatternToReact(renderPage, ref => <div ref={ref}/>);
 // ```
 function oldRenderPatternToReact<T>(
-  oldStyle: (v: T) => HTMLElement,
+  oldStyle: (v: T) => HTMLElement | SVGElement,
   container: any,
 ) {
   return class extends React.Component<{ value: T }> {
@@ -44,12 +45,13 @@ function oldRenderPatternToReact<T>(
 }
 
 
-export interface PageState {
+export interface PageProps {
   snapshot: Snapshot;
   debugMode: boolean;
   syncStatus: SyncStatus;
   mode: AppMode;
   currentListIndex: number;
+  userInfo: UserInfo;
 }
 
 function classes(...classes: string[]) {
@@ -58,16 +60,69 @@ function classes(...classes: string[]) {
     .join(' ') ;
 }
 
-export const Page = ({ snapshot, debugMode, syncStatus, mode, currentListIndex }: PageState) =>
-  <div id='page' className={classes(syncStatus, mode, debugMode && 'debug-mode')}>
-    <Navigator value={snapshot}/>
-    <List value={snapshot.lists[currentListIndex]}/>
-    <div id='mobile-nav-background' onClick={hideMobileNav}/>
+export const Page = (p: PageProps) =>
+  <div id='page' className={classes(p.syncStatus, p.mode, p.debugMode && 'debug-mode')}>
+    <Navigator {...p}/>
+    <ListComponent value={p.snapshot.lists[p.currentListIndex]} />
+    <div id='mobile-nav-background' onClick={hideMobileNav} />
   </div>
 
-function hideMobileNav() {
-  document.getElementById('page').classList.remove('mobile-nav-showing');
+export const Navigator = (p: PageProps) =>
+  <div className='nav-panel'>
+    <UserPanel {...p} />
+    <div className="lists-section">
+      <ul className="list-nav">
+        {p.snapshot.lists.map((list, i) =>
+          <NavigatorItem list={list} isActive={i === p.currentListIndex}/>)}
+      </ul>
+    </div>
+  </div>
+
+export const NavigatorItem = ({ list, isActive }: { list: List, isActive: boolean }) => {
+  const listHasReadyItems = list.items.some(item => item.saved.value && item.saved.value >= item.price);
+  const allocatedAmount = Math.round(getAllocatedRate(list.budget) * 365.25 / 12);
+
+  return (
+    <li
+      className={classes('nav-item', listHasReadyItems && 'has-ready-items', isActive && 'active')}
+      onClick={navListItemClick}
+    >
+      <h1>{list.name}</h1>
+      { listHasReadyItems
+          ? <ReadyIndicatorSvg value={null} />
+          : undefined }
+      { allocatedAmount
+          ? <CurrencyComponent className='allocated' value={allocatedAmount}/>
+          : undefined }
+    </li> )
 }
 
-export const Navigator = oldRenderPatternToReact(renderNavigator, ref => <div ref={ref}/>);
-export const List = oldRenderPatternToReact(renderList, ref => <div ref={ref}/>);
+export const UserPanel = ({ userInfo, mode, syncStatus }: PageProps) =>
+  mode === 'online'
+    ? <div className='user-panel'>
+        <div className='user-status'>
+          {syncStatus !== 'sync-failure'
+            ? `Hi, ${userInfo.name}`
+            : 'Connection error'}
+        </div>
+        <div className="user-panel-buttons">
+          <button className='sign-out' onClick={signOutClick}>Sign out</button>
+        </div>
+      </div>
+    : <div className='user-panel'>
+        <div className='user-status'>
+          Your lists are currently stored locally
+        </div>
+        <div className="user-panel-buttons">
+          <button className='sign-up' onClick={signUpClick}>New account</button>
+          <button className='sign-in' onClick={signInClick}>Sign in</button>
+        </div>
+      </div>
+
+export const CurrencyComponent = ({ amount, decimals, className }: { amount: Currency, decimals?: number, className?: string }) =>
+
+   <span className={classes(className, 'currency')}>{formatCurrency(amount, decimals)}</span>
+
+
+export const ListComponent = oldRenderPatternToReact(renderList, ref => <div ref={ref}/>);
+export const ReadyIndicatorSvg = oldRenderPatternToReact(createReadyIndicatorSvg, ref => <svg ref={ref}/>);

@@ -74,7 +74,8 @@ import * as React from 'react'
 import * as ReactDOM from 'react-dom';
 import 'react-dom'
 import { Page } from './render';
-import { Action, ActionWithoutHash, AppMode, BudgetAmount, Currency, Item, ItemId, LinearAmount, List, ListId, Md5Hash, NewAction, PurchaseHistoryItem, Snapshot, StateBlobStructure, StateHistory, SyncStatus, Timestamp, Uuid } from './data-model';
+import { Action, ActionWithoutHash, AppMode, BudgetAmount, Currency, Item, ItemId, LinearAmount, List, ListId, Md5Hash, NewAction, PurchaseHistoryItem, Snapshot, StateBlobStructure, StateHistory, SyncStatus, Timestamp, UserInfo, Uuid } from './data-model';
+import { getAllocatedRate } from './utils';
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
@@ -100,7 +101,7 @@ class Globals {
   snapshot: Snapshot;
   actions: StateHistory;
 
-  userInfo: any;
+  userInfo: UserInfo;
   saveState: any;
   loadState: any;
 
@@ -498,7 +499,7 @@ function renderTotals(state: Snapshot) {
   return totalsSection;
 }
 
-function renderCurrency(amount: Currency, decimals = 2) {
+export function renderCurrency(amount: Currency, decimals = 2) {
   const el = document.createElement('span');
   el.classList.add('currency')
   el.textContent = formatCurrency(amount, decimals);
@@ -1021,16 +1022,6 @@ function mutatingProjection(state: Snapshot, toTime: Timestamp) {
     : null;
 }
 
-function getAllocatedRate(budget: BudgetAmount) {
-  if (budget.unit === '/month')
-    return budget.dollars * 12 / 365.25;
-  else
-  if (budget.unit === '/day')
-    return budget.dollars;
-  else
-    throw new Error('Unknown unit')
-}
-
 function deleteItemClick(event) {
   const item = domDataAttachments.get(event.target.closest(".item"));
 
@@ -1314,7 +1305,7 @@ function makeEditable(el: HTMLElement, { read, write, requiresRender = true }) {
   }
 }
 
-function navListItemClick(event) {
+export function navListItemClick(event) {
   const list = (domDataAttachments.get(event.target) ?? domDataAttachments.get(event.target.closest(".nav-item"))) as List;
 
   const index = g.snapshot.lists.indexOf(list);
@@ -1499,7 +1490,7 @@ function createSmileySvg() {
   return svg;
 }
 
-function createReadyIndicatorSvg() {
+export function createReadyIndicatorSvg() {
   const r = 4;
   const margin = 1;
   const w = r * 2 + margin * 2;
@@ -1697,7 +1688,7 @@ function apiRequest(cmd, data): Promise<any> {
   })
 }
 
-function signInClick() {
+export function signInClick() {
   const dialogContentEl = document.createElement('div');
   dialogContentEl.classList.add('login-dialog');
 
@@ -1774,7 +1765,7 @@ function mergeStates(state1: StateBlobStructure, state2: StateBlobStructure): St
   }
 }
 
-function signUpClick() {
+export function signUpClick() {
   const dialogContentEl = document.createElement('div');
   dialogContentEl.classList.add('sign-up-dialog');
 
@@ -1858,7 +1849,11 @@ function detectMode() {
   }
 }
 
-async function signOutClick() {
+export function hideMobileNav() {
+  document.getElementById('page').classList.remove('mobile-nav-showing');
+}
+
+export async function signOutClick() {
   delete g.userInfo;
   localStorage && localStorage.removeItem('user-info');
   localStorage && localStorage.removeItem('squirrel-away-online-state');

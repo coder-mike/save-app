@@ -135,3 +135,8 @@ export interface RedoAction extends ActionBase { type: 'Redo', actionIdToRedo: A
 
 export type SyncStatus = 'sync-pending' | 'sync-failure' | 'sync-success';
 export type AppMode = 'electron-local' | 'web-local' | 'online';
+
+export interface UserInfo {
+  id: string;
+  name: string;
+}
