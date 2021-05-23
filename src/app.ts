@@ -443,7 +443,7 @@ export function renderNavigator(state: Snapshot) {
   const newListButton = newListButtonContainer.appendChild(document.createElement('button'));
   newListButton.classList.add('button-new', 'svg-button');
   newListButton.addEventListener('click', newListClick);
-  newListButton.appendChild(createPlusSvg());
+  newListButton.appendChild(renderPlusSvg());
 
   // Totals
   navEl.appendChild(renderTotals(state));
@@ -577,7 +577,7 @@ export function renderList(list: List) {
   }
 
   // Menu
-  listHeaderEl.appendChild(createListMenu())
+  listHeaderEl.appendChild(renderListMenu())
 
   // Purchase history
   const historyItemsEl = listEl.appendChild(document.createElement('ol'));
@@ -596,7 +596,7 @@ export function renderList(list: List) {
   const addItemEl = listEl.appendChild(document.createElement('button'));
   addItemEl.classList.add('add-item', 'svg-button');
   addItemEl.addEventListener('click', addItemClick);
-  addItemEl.appendChild(createPlusSvg());
+  addItemEl.appendChild(renderPlusSvg());
 
   return listEl;
 }
@@ -616,7 +616,7 @@ function unexpected(): never {
   throw new Error('Unexpected');
 }
 
-function renderMobileTopMenuBar() {
+export function renderMobileTopMenuBar() {
   const mobileTopMenuEl = document.createElement('div');
   mobileTopMenuEl.id = 'mobile-top-menu';
   mobileTopMenuEl.addEventListener('click', () => {
@@ -635,8 +635,8 @@ function renderMobileTopMenuBar() {
   return mobileTopMenuEl;
 }
 
-function createListMenu() {
-  return createMenu(menu => {
+export function renderListMenu() {
+  return renderMenu(menu => {
     menu.setIcon(createMenuButtonSvg());
 
     const listInject = menu.newItem();
@@ -744,7 +744,7 @@ function renderItem(item: Item) {
 }
 
 function createItemMenu(item: Item) {
-  return createMenu(menu => {
+  return renderMenu(menu => {
     menu.setIcon(createMenuButtonSvg());
 
     // Purchase
@@ -1354,7 +1354,7 @@ function newListClick() {
   selectAllInContentEditable(listHeading);
 }
 
-function parseNonNegativeCurrency(value) {
+export function parseNonNegativeCurrency(value) {
   return Math.max(parseFloat(value) || 0, 0)
 }
 
@@ -1362,7 +1362,7 @@ function parseCurrency(value) {
   return parseFloat(value) || 0;
 }
 
-function createPlusSvg() {
+function renderPlusSvg() {
   const ns = 'http://www.w3.org/2000/svg';
   const r = 15;
   const margin = 2;
@@ -1533,7 +1533,7 @@ function createMenuButtonSvg() {
   return svg;
 }
 
-function createMenu(content: (menu: { setIcon(icon: Element): void, newItem(): HTMLElement }) => void) {
+function renderMenu(content: (menu: { setIcon(icon: Element): void, newItem(): HTMLElement }) => void) {
   const menuContainerEl = document.createElement('div');
   menuContainerEl.classList.add('menu-container');
 
