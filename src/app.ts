@@ -73,13 +73,13 @@ import produce from 'immer'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom';
 import 'react-dom'
-import { Page } from './render';
+import { formatCurrency, Page } from './render';
 import { Action, ActionWithoutHash, AppMode, BudgetAmount, Currency, Item, ItemId, LinearAmount, List, ListId, Md5Hash, NewAction, PurchaseHistoryItem, Snapshot, StateBlobStructure, StateHistory, SyncStatus, Timestamp, UserInfo, Uuid } from './data-model';
 import { getAllocatedRate } from './utils';
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
-class Globals {
+export class Globals {
   mode: AppMode;
 
   // The "state", as it used to be called, is now split into the history and
@@ -601,7 +601,7 @@ export function renderList(list: List) {
   return listEl;
 }
 
-function getList(id: ListId) {
+export function getList(id: ListId) {
   return g.snapshot.lists.find(l => l.id === id) ?? unexpected();
 }
 
@@ -829,7 +829,6 @@ function renderLinearAmount(amount: LinearAmount) {
   subCents.classList.add('sub-cents');
   let executingFromTimer = false;
   const update = () => {
-    //if (global.isEditing) return;
     // Check if element is removed
     if (executingFromTimer && !document.getElementById(amountSpan.id))
       return clearInterval(timer);
@@ -875,9 +874,7 @@ function createItemBackground(item: Item, itemEl: HTMLElement) {
   }
 }
 
-function formatCurrency(value: Currency, decimals = 2) {
-  return value.toFixed(decimals);
-}
+
 
 function finishedUserInteraction(requiresRender = true) {
   updateState();
@@ -1207,7 +1204,7 @@ function addItemClick(event) {
 
 // For debuggability, the rates are stored in dollars per day, but we need them
 // in dollars per millisecond for most calculations
-function rateInDollarsPerMs(rate) {
+export function rateInDollarsPerMs(rate) {
   return rate / 86_400_000;
 }
 
@@ -1235,7 +1232,7 @@ function serializeDate(date) {
     : new Date(date).toISOString();
 }
 
-function deserializeDate(date) {
+export function deserializeDate(date) {
   return date === 'never'
     ? Infinity
     : Date.parse(date)
@@ -1901,7 +1898,7 @@ function uuidv4(): Uuid {
 }
 
 // Folds the action into the state and records it in the undo history
-function addUserAction(newAction: NewAction) {
+export function addUserAction(newAction: NewAction) {
   const action = doAction(newAction);
 
   g.undoHistory[g.undoIndex++] = action.id;
