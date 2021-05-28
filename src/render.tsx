@@ -2,7 +2,7 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import 'react-dom';
 import { addUserAction, renderListMenu, createReadyIndicatorSvg, deserializeDate, getList, Globals, hideMobileNav, navListItemClick, parseNonNegativeCurrency, rateInDollarsPerMs, renderCurrency, renderList, renderMobileTopMenuBar, renderNavigator, signInClick, signOutClick, signUpClick } from './app';
-import { AppMode, Currency, LinearAmount, List as WishList, Snapshot, SyncStatus, UserInfo } from './data-model';
+import { AppMode, Currency, LinearAmount, List as WishList, NewAction, Snapshot, SyncStatus, UserInfo } from './data-model';
 import { getAllocatedRate } from './utils';
 
 const svgNs = 'http://www.w3.org/2000/svg';
@@ -48,7 +48,6 @@ function oldRenderPatternToReact<T>(
   }
 }
 
-
 export interface PageProps {
   snapshot: Snapshot;
   debugMode: boolean;
@@ -56,6 +55,7 @@ export interface PageProps {
   mode: AppMode;
   currentListIndex: number;
   userInfo: UserInfo;
+  onUserAction: OnUserAction;
 }
 
 const classes = (...classes: string[]) =>
@@ -67,7 +67,10 @@ export const Page = (p: PageProps) =>
   <SnapshotTimeContext.Provider value={{ snapshotTime: deserializeDate(p.snapshot.time) }}>
     <div id='page' className={classes(p.syncStatus, p.mode, p.debugMode && 'debug-mode')}>
       <Navigator {...p}/>
-      <WishListComponent list={p.snapshot.lists[p.currentListIndex]} />
+      <WishListComponent
+        // TODO: The list index should be state not a prop
+        list={p.snapshot.lists[p.currentListIndex]}
+        onUserAction={p.onUserAction} />
       <div id='mobile-nav-background' onClick={hideMobileNav} />
     </div>
   </SnapshotTimeContext.Provider>
@@ -86,21 +89,26 @@ const Navigator = (p: PageProps) =>
 const NavigatorItem = ({ list, isActive }: { list: WishList, isActive: boolean }) => {
   const listHasReadyItems = list.items.some(item => item.saved.value && item.saved.value >= item.price);
   const allocatedAmount = Math.round(getAllocatedRate(list.budget) * 365.25 / 12);
-
+  const className = classes('nav-item', listHasReadyItems && 'has-ready-items', isActive && 'active');
   return (
-    <li
-      className={classes('nav-item', listHasReadyItems && 'has-ready-items', isActive && 'active')}
-      onClick={navListItemClick}
-    >
+    // TODO: I'd prefer not to handle onClick with a global handler
+    <li className={className} onClick={navListItemClick}>
       <h1>{list.name}</h1>
-      { listHasReadyItems
-          ? <ReadyIndicatorSvg value={null} />
-          : undefined }
-      { allocatedAmount
-          ? <CurrencyComponent className='allocated' amount={allocatedAmount}/>
-          : undefined }
-    </li> )
+      <MaybeListReadyIndicator listHasReadyItems={listHasReadyItems} />
+      <MaybeListAllocatedAmount allocatedAmount={allocatedAmount} />
+    </li>
+  )
 }
+
+const MaybeListReadyIndicator = ({ listHasReadyItems }: { listHasReadyItems: boolean }) =>
+  listHasReadyItems
+    ? <ReadyIndicatorSvg value={null} />
+    : null
+
+const MaybeListAllocatedAmount = ({ allocatedAmount }: { allocatedAmount: number }) =>
+  allocatedAmount
+    ? <CurrencyComponent className='allocated' amount={allocatedAmount}/>
+    : null
 
 const UserPanel = (props: PageProps) =>
   props.mode === 'online'
@@ -133,7 +141,14 @@ const OfflineUserPanel = () =>
 const CurrencyComponent = ({ amount, decimals, className }: { amount: Currency, decimals?: number, className?: string }) =>
    <span className={classes(className, 'currency')}>{formatCurrency(amount, decimals)}</span>
 
-const WishListComponent = ({ list }: { list: WishList }) =>
+type OnUserAction = (action: NewAction) => void;
+
+interface WishListProps {
+  list: WishList;
+  onUserAction: OnUserAction;
+}
+
+const WishListComponent = ({ list, onUserAction }: WishListProps) =>
   <div id='current-list' className='list'>
     { /* TODO: attach domDataAttachments for events */ }
     <ListHeader list={list} />
@@ -143,7 +158,10 @@ const WishListComponent = ({ list }: { list: WishList }) =>
     <ol className='items-list'>
       {/* TODO */}
     </ol>
-    <button className='add-item svg-button'>
+    <button
+      className='add-item svg-button'
+      onClick={() => onUserAction({ type: 'ItemNew', listId: list.id })}
+    >
       {/* TODO: Click handler */}
       <PlusSvg />
     </button>
@@ -184,7 +202,7 @@ const ListHeaderAllocated = ({ list }: { list: WishList }) =>
     <ContentEditable
       Component={() => <div className="allocated-amount" />}
       read={() => formatCurrency(getList(list.id).budget.dollars)}
-      write={v => addUserAction({
+      onChange={v => addUserAction({
         type: 'ListSetBudget',
         listId: list.id,
         budget: { dollars: parseNonNegativeCurrency(v), unit: '/month' }
@@ -198,7 +216,7 @@ const ListName = ({ list }: { list: WishList }) =>
     <ContentEditable
       Component={() => <h1 id='list-heading' className='list-heading' />}
       read={() => getList(list.id).name}
-      write={value => addUserAction({ type: 'ListSetName', listId: list.id, newName: value })}
+      onChange={value => addUserAction({ type: 'ListSetName', listId: list.id, newName: value })}
       requiresRender={false}
     />
   </div>
@@ -212,8 +230,7 @@ export function formatCurrency(value: Currency, decimals = 2) {
 interface ContentEditableProps {
   Component: React.ComponentType<{ onChange: React.FormEventHandler }>;
   read: () => string;
-  // TODO: it would be better if our react components didn't have side effects
-  write: (s: string) => void;
+  onChange: (s: string) => void;
   requiresRender?: boolean;
 }
 
@@ -224,7 +241,11 @@ class ContentEditable extends React.Component<ContentEditableProps, { value: str
   }
 
   onChange: React.FormEventHandler = event => {
-    this.props.write((event.target as any).textContent);
+    // TODO: I don't want to call onChange for every keystroke. Also, it doesn't
+    // make sense to set the local state and trigger a global state change at
+    // the same time.
+
+    // this.props.onChange((event.target as any).textContent);
     this.setState({ value: this.props.read() });
   }
 

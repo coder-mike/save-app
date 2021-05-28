@@ -73,7 +73,7 @@ import produce from 'immer'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom';
 import 'react-dom'
-import { formatCurrency, Page } from './render';
+import { formatCurrency, Page, PageProps } from './render';
 import { Action, ActionWithoutHash, AppMode, BudgetAmount, Currency, Item, ItemId, LinearAmount, List, ListId, Md5Hash, NewAction, PurchaseHistoryItem, Snapshot, StateBlobStructure, StateHistory, SyncStatus, Timestamp, UserInfo, Uuid } from './data-model';
 import { getAllocatedRate } from './utils';
 
@@ -235,8 +235,21 @@ function render() {
   g.currentListIndex = Math.max(g.currentListIndex, 0);
   g.currentListIndex = Math.min(g.currentListIndex, g.snapshot.lists.length - 1);
 
+  const pageProps: PageProps = {
+    ...g,
+    onUserAction: action => {
+      console.log('action', action);
+      addUserAction(action);
+      updateState();
+      save();
+      render();
+    }
+  }
+
   saveScrollPosition(); // TODO: This won't be needed once we move to react
-  ReactDOM.render(React.createElement(Page, g), document.getElementById('page'));
+  ReactDOM.render(
+    React.createElement(Page, pageProps),
+    document.getElementById('page'));
   restoreScrollPosition();
 }
 
