@@ -102,27 +102,33 @@ const NavigatorItem = ({ list, isActive }: { list: WishList, isActive: boolean }
     </li> )
 }
 
-const UserPanel = ({ userInfo, mode, syncStatus }: PageProps) =>
-  mode === 'online'
-    ? <div className='user-panel'>
-        <div className='user-status'>
-          {syncStatus !== 'sync-failure'
-            ? `Hi, ${userInfo.name}`
-            : 'Connection error'}
-        </div>
-        <div className="user-panel-buttons">
-          <button className='sign-out' onClick={signOutClick}>Sign out</button>
-        </div>
-      </div>
-    : <div className='user-panel'>
-        <div className='user-status'>
-          Your lists are currently stored locally
-        </div>
-        <div className="user-panel-buttons">
-          <button className='sign-up' onClick={signUpClick}>New account</button>
-          <button className='sign-in' onClick={signInClick}>Sign in</button>
-        </div>
-      </div>
+const UserPanel = (props: PageProps) =>
+  props.mode === 'online'
+    ? <OnlineUserPanel {...props} />
+    : <OfflineUserPanel />
+
+const OnlineUserPanel = ({ userInfo, syncStatus }: PageProps) =>
+  <div className='user-panel'>
+    <div className='user-status'>
+      {syncStatus !== 'sync-failure'
+        ? `Hi, ${userInfo.name}`
+        : 'Connection error'}
+    </div>
+    <div className="user-panel-buttons">
+      <button className='sign-out' onClick={signOutClick}>Sign out</button>
+    </div>
+  </div>
+
+const OfflineUserPanel = () =>
+  <div className='user-panel'>
+    <div className='user-status'>
+      Your lists are currently stored locally
+    </div>
+    <div className="user-panel-buttons">
+      <button className='sign-up' onClick={signUpClick}>New account</button>
+      <button className='sign-in' onClick={signInClick}>Sign in</button>
+    </div>
+  </div>
 
 const CurrencyComponent = ({ amount, decimals, className }: { amount: Currency, decimals?: number, className?: string }) =>
    <span className={classes(className, 'currency')}>{formatCurrency(amount, decimals)}</span>
@@ -131,13 +137,13 @@ const WishListComponent = ({ list }: { list: WishList }) =>
   <div id='current-list' className='list'>
     { /* TODO: attach domDataAttachments for events */ }
     <ListHeader list={list} />
-    <ol className="purchase-history">
+    <ol className='purchase-history'>
       {/* TODO */}
     </ol>
-    <ol className="items-list">
+    <ol className='items-list'>
       {/* TODO */}
     </ol>
-    <button className="add-item svg-button">
+    <button className='add-item svg-button'>
       {/* TODO: Click handler */}
       <PlusSvg />
     </button>
