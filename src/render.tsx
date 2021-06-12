@@ -1,9 +1,9 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import 'react-dom';
-import { addUserAction, renderListMenu, createReadyIndicatorSvg, deserializeDate, getList, Globals, hideMobileNav, navListItemClick, parseNonNegativeCurrency, rateInDollarsPerMs, renderCurrency, renderList, renderMobileTopMenuBar, renderNavigator, signInClick, signOutClick, signUpClick } from './app';
+import { addUserAction, renderListMenu, createReadyIndicatorSvg, deserializeDate, getList, Globals, hideMobileNav, navListItemClick, rateInDollarsPerMs, renderCurrency, renderList, renderMobileTopMenuBar, renderNavigator, signInClick, signOutClick, signUpClick } from './app';
 import { AppMode, Currency, LinearAmount, List as WishList, NewAction, Snapshot, SyncStatus, UserInfo } from './data-model';
-import { getAllocatedRate } from './utils';
+import { getAllocatedRate, parseCurrency } from './utils';
 
 const svgNs = 'http://www.w3.org/2000/svg';
 
@@ -102,7 +102,7 @@ const NavigatorItem = ({ list, isActive }: { list: WishList, isActive: boolean }
 
 const MaybeListReadyIndicator = ({ listHasReadyItems }: { listHasReadyItems: boolean }) =>
   listHasReadyItems
-    ? <ReadyIndicatorSvg value={null} />
+    ? <ReadyIndicatorSvg />
     : null
 
 const MaybeListAllocatedAmount = ({ allocatedAmount }: { allocatedAmount: number }) =>
@@ -169,10 +169,12 @@ const WishListComponent = ({ list, onUserAction }: WishListProps) =>
 
 const ListHeader = ({ list }: { list: WishList }) =>
   <div className='list-sticky-area'>
+    {/* TODO: I feel like this should be part of the background style rather than an HTML element */}
     <SquirrelGraphic />
     <MobileTopMenuBar value={undefined} />
     <div className="list-header">
       <ListName list={list} />
+      {/* TODO: I think it would make more sense semantically if this nesting wasn't here and we used a css grid for layout */}
       <div className="list-info">
         <ListHeaderAllocated list={list} />
         {showKitty(list.kitty) && <ListKitty kitty={list.kitty} />}
@@ -198,17 +200,17 @@ const ListKitty = ({ kitty }: { kitty: LinearAmount }) =>
   </span>
 
 const ListHeaderAllocated = ({ list }: { list: WishList }) =>
-  <div className="list-allocated">
+  <div className='list-allocated'>
     <ContentEditable
-      Component={() => <div className="allocated-amount" />}
-      read={() => formatCurrency(getList(list.id).budget.dollars)}
+      Component={() => <div className='allocated-amount' />}
+      read={() => formatCurrency(list.budget.dollars)}
       onChange={v => addUserAction({
         type: 'ListSetBudget',
         listId: list.id,
-        budget: { dollars: parseNonNegativeCurrency(v), unit: '/month' }
+        budget: { dollars: parseCurrency(v), unit: '/month' }
       })}
     />
-    <div className="allocated-unit">{list.budget.unit}</div>
+    <div className='allocated-unit'>{list.budget.unit}</div>
   </div>
 
 const ListName = ({ list }: { list: WishList }) =>
@@ -221,7 +223,25 @@ const ListName = ({ list }: { list: WishList }) =>
     />
   </div>
 
-const ReadyIndicatorSvg = oldRenderPatternToReact(createReadyIndicatorSvg, ref => <svg ref={ref}/>);
+// The ready-indicator is a just a green circle next to the wishlist in the nav panel
+function ReadyIndicatorSvg() {
+  const r = 4;
+  const margin = 1;
+  const w = r * 2 + margin * 2;
+
+  return (
+    <svg
+      xmlns={svgNs}
+      className='ready-indicator'
+      viewBox={`${-r - margin} ${-r - margin} ${w} ${w}`}
+      width={w}
+      height={w}
+      style={{ display: 'block' }}
+    >
+      <circle r={r} />
+    </svg>
+  )
+}
 
 export function formatCurrency(value: Currency, decimals = 2) {
   return value.toFixed(decimals);

@@ -75,7 +75,7 @@ import * as ReactDOM from 'react-dom';
 import 'react-dom'
 import { formatCurrency, Page, PageProps } from './render';
 import { Action, ActionWithoutHash, AppMode, BudgetAmount, Currency, Item, ItemId, LinearAmount, List, ListId, Md5Hash, NewAction, PurchaseHistoryItem, Snapshot, StateBlobStructure, StateHistory, SyncStatus, Timestamp, UserInfo, Uuid } from './data-model';
-import { getAllocatedRate } from './utils';
+import { getAllocatedRate, parseCurrency, parseNonNegativeCurrency } from './utils';
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
@@ -1365,14 +1365,6 @@ function newListClick() {
 
   const listHeading = document.getElementById('list-heading');
   selectAllInContentEditable(listHeading);
-}
-
-export function parseNonNegativeCurrency(value) {
-  return Math.max(parseFloat(value) || 0, 0)
-}
-
-function parseCurrency(value) {
-  return parseFloat(value) || 0;
 }
 
 function renderPlusSvg() {

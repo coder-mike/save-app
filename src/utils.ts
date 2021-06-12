@@ -10,3 +10,11 @@ export function getAllocatedRate(budget: BudgetAmount) {
   else
     throw new Error('Unknown unit')
 }
+
+export function parseNonNegativeCurrency(value) {
+  return Math.max(parseFloat(value) || 0, 0)
+}
+
+export function parseCurrency(value) {
+  return parseFloat(value) || 0;
+}
