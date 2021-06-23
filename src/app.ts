@@ -253,6 +253,12 @@ function render() {
   restoreScrollPosition();
 }
 
+export function performAction(action: NewAction) {
+  addUserAction(action);
+  render();
+  save();
+}
+
 function save() {
   if (g.debugMode) {
     console.log('Would save here');
@@ -897,7 +903,7 @@ function finishedUserInteraction(requiresRender = true) {
 
 // Updates (projects) the state to the latest projected values and sets a
 // timeout to repeat automatically the next time that the state needs to change
-function updateState() {
+export function updateState() {
   console.log('Update state');
   const toTime = Date.now();
 
@@ -1324,7 +1330,7 @@ export function navListItemClick(event) {
   render();
 }
 
-function beginEdit(el) {
+export function beginEdit(el) {
   updateState();
 
   g.isEditing = true;
@@ -1334,7 +1340,7 @@ function beginEdit(el) {
   g.editingTimeout = setTimeout(editTimeout, 60000);
 }
 
-function continueEdit() {
+export function continueEdit() {
   clearTimeout(g.editingTimeout);
   g.editingTimeout = setTimeout(editTimeout, 60000);
 }
@@ -1343,7 +1349,7 @@ function editTimeout() {
   g.elementBeingEdited && g.elementBeingEdited.blur();
 }
 
-function endEdit(changed = true, requiresRender = true) {
+export function endEdit(changed = true, requiresRender = true) {
   g.isEditing = false;
   g.elementBeingEdited = null;
   clearTimeout(g.editingTimeout);
@@ -1878,7 +1884,7 @@ function restoreScrollPosition() {
   list.scrollTop = g.listScrollPosition;
 }
 
-function selectAllInContentEditable(el: HTMLElement) {
+export function selectAllInContentEditable(el: HTMLElement) {
   el.focus();
   //document.execCommand('selectAll', false, null);
 

@@ -1,9 +1,9 @@
 import * as React from 'react';
-import * as ReactDOM from 'react-dom';
 import 'react-dom';
-import { addUserAction, renderListMenu, createReadyIndicatorSvg, deserializeDate, getList, Globals, hideMobileNav, navListItemClick, rateInDollarsPerMs, renderCurrency, renderList, renderMobileTopMenuBar, renderNavigator, signInClick, signOutClick, signUpClick } from './app';
+import { performAction, renderListMenu, deserializeDate, getList, hideMobileNav, navListItemClick, rateInDollarsPerMs, renderMobileTopMenuBar, signInClick, signOutClick, signUpClick } from './app';
 import { AppMode, Currency, LinearAmount, List as WishList, NewAction, Snapshot, SyncStatus, UserInfo } from './data-model';
 import { getAllocatedRate, parseCurrency } from './utils';
+import { ContentEditable2 } from './content-editable';
 
 const svgNs = 'http://www.w3.org/2000/svg';
 
@@ -172,11 +172,11 @@ const ListHeader = ({ list }: { list: WishList }) =>
     {/* TODO: I feel like this should be part of the background style rather than an HTML element */}
     <SquirrelGraphic />
     <MobileTopMenuBar value={undefined} />
-    <div className="list-header">
+    <div className='list-header'>
       <ListName list={list} />
       {/* TODO: I think it would make more sense semantically if this nesting wasn't here and we used a css grid for layout */}
-      <div className="list-info">
-        <ListHeaderAllocated list={list} />
+      <div className='list-info'>
+        <ListHeaderAllocated {...list} />
         {showKitty(list.kitty) && <ListKitty kitty={list.kitty} />}
       </div>
       <ListMenuComponent />
@@ -199,12 +199,12 @@ const ListKitty = ({ kitty }: { kitty: LinearAmount }) =>
     }
   </span>
 
-const ListHeaderAllocated = ({ list }: { list: WishList }) =>
+const ListHeaderAllocated = (list: WishList) =>
   <div className='list-allocated'>
-    <ContentEditable
-      Component={() => <div className='allocated-amount' />}
+    <ContentEditable2
+      Component={props => <div className='allocated-amount' {...props} />}
       read={() => formatCurrency(list.budget.dollars)}
-      onChange={v => addUserAction({
+      onChange={v => performAction({
         type: 'ListSetBudget',
         listId: list.id,
         budget: { dollars: parseCurrency(v), unit: '/month' }
@@ -215,11 +215,10 @@ const ListHeaderAllocated = ({ list }: { list: WishList }) =>
 
 const ListName = ({ list }: { list: WishList }) =>
   <div className='list-name'>
-    <ContentEditable
-      Component={() => <h1 id='list-heading' className='list-heading' />}
+    <ContentEditable2
+      Component={props => <h1 id='list-heading' className='list-heading' {...props} />}
       read={() => getList(list.id).name}
-      onChange={value => addUserAction({ type: 'ListSetName', listId: list.id, newName: value })}
-      requiresRender={false}
+      onChange={newName => performAction({ type: 'ListSetName', listId: list.id, newName })}
     />
   </div>
 
@@ -228,7 +227,6 @@ function ReadyIndicatorSvg() {
   const r = 4;
   const margin = 1;
   const w = r * 2 + margin * 2;
-
   return (
     <svg
       xmlns={svgNs}
