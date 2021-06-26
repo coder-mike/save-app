@@ -7,7 +7,7 @@ interface ContentEditableProps2 {
   onChange: (s: string) => void;
 }
 
-export class ContentEditable2 extends React.Component<ContentEditableProps2, undefined> {
+export class ContentEditable extends React.Component<ContentEditableProps2, undefined> {
   automaticBlurTimeout: any;
   el: HTMLElement;
 

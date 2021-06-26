@@ -3,7 +3,7 @@ import 'react-dom';
 import { performAction, renderListMenu, deserializeDate, getList, hideMobileNav, navListItemClick, rateInDollarsPerMs, renderMobileTopMenuBar, signInClick, signOutClick, signUpClick } from './app';
 import { AppMode, Currency, LinearAmount, List as WishList, NewAction, Snapshot, SyncStatus, UserInfo } from './data-model';
 import { getAllocatedRate, parseCurrency } from './utils';
-import { ContentEditable2 } from './content-editable';
+import { ContentEditable } from './content-editable';
 
 const svgNs = 'http://www.w3.org/2000/svg';
 
@@ -201,7 +201,7 @@ const ListKitty = ({ kitty }: { kitty: LinearAmount }) =>
 
 const ListHeaderAllocated = (list: WishList) =>
   <div className='list-allocated'>
-    <ContentEditable2
+    <ContentEditable
       Component={props => <div className='allocated-amount' {...props} />}
       read={() => formatCurrency(list.budget.dollars)}
       onChange={v => performAction({
@@ -215,7 +215,7 @@ const ListHeaderAllocated = (list: WishList) =>
 
 const ListName = ({ list }: { list: WishList }) =>
   <div className='list-name'>
-    <ContentEditable2
+    <ContentEditable
       Component={props => <h1 id='list-heading' className='list-heading' {...props} />}
       read={() => getList(list.id).name}
       onChange={newName => performAction({ type: 'ListSetName', listId: list.id, newName })}
@@ -243,34 +243,6 @@ function ReadyIndicatorSvg() {
 
 export function formatCurrency(value: Currency, decimals = 2) {
   return value.toFixed(decimals);
-}
-
-interface ContentEditableProps {
-  Component: React.ComponentType<{ onChange: React.FormEventHandler }>;
-  read: () => string;
-  onChange: (s: string) => void;
-  requiresRender?: boolean;
-}
-
-class ContentEditable extends React.Component<ContentEditableProps, { value: string }> {
-  constructor(props: ContentEditableProps) {
-    super(props);
-    this.state = { value: props.read() }
-  }
-
-  onChange: React.FormEventHandler = event => {
-    // TODO: I don't want to call onChange for every keystroke. Also, it doesn't
-    // make sense to set the local state and trigger a global state change at
-    // the same time.
-
-    // this.props.onChange((event.target as any).textContent);
-    this.setState({ value: this.props.read() });
-  }
-
-  render = () =>
-    <this.props.Component onChange={this.onChange}>
-      {this.state.value}
-    </this.props.Component>
 }
 
 interface LinearAmountProps {
