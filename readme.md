@@ -6,6 +6,8 @@ A simple app to help to limit spending. You create a list of things you want, an
 
 ![screenshot](screenshot.jpg)
 
+You create a set of lists, and set a budget for each list (how much per month you want to spend on things in that list). The app will gradually count "money" towards the first item in the list until it's "ready to buy" (meaning that you've waited long enough to purchase it) and then it will start counting money towards the second thing in the list, etc. The app does not interact with banks or real money in any way. It's merely a way to throttle your expenses so that they don't exceed some average amount (i.e. the budget amount).
+
 ## Run
 
   - Clone repo
